@@ -102,7 +102,48 @@
       emojiBadge("🔬", "c-primary", "big"),
       h("h1", null, "Химия и биология"),
       h("p", { class: "muted small" }, Content.AUTHOR),
-      formBox);
+      formBox,
+      h("div", { class: "auth-install" }, installSection()));
+  }
+
+  // ======================= Раздел «Приложение на телефон» =======================
+
+  /** Сайт уже открыт как приложение с экрана «Домой»? Тогда инструкция для iPhone не нужна. */
+  function runsAsInstalledApp() {
+    return window.navigator.standalone === true ||
+      (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
+  }
+
+  /** Табличка «Скачать в RuStore» и инструкция, как поставить сайт на iPhone. */
+  function installSection() {
+    const url = (window.APP_CONFIG && window.APP_CONFIG.rustoreUrl) || "";
+    const badgeText = h("span", { class: "store-badge-text" },
+      h("span", { class: "store-badge-small" }, url ? "Скачать в" : "Скоро в"),
+      h("span", { class: "store-badge-big" }, "RuStore"));
+    const badge = url
+      ? h("a", { class: "store-badge", href: url, target: "_blank", rel: "noopener noreferrer" }, icon("phone", 28), badgeText)
+      : h("span", { class: "store-badge store-badge-soon", "aria-disabled": "true" }, icon("phone", 28), badgeText);
+
+    const android = h("div", { class: "card install-card" },
+      h("div", { class: "card-title" }, "На Android"),
+      h("p", { class: "small muted" }, url
+        ? "Установите приложение из RuStore: задания и оценки те же, что на сайте."
+        : "Приложение скоро появится в RuStore. Пока можно пользоваться сайтом."),
+      badge);
+
+    const step = (n, ...content) => h("li", { class: "install-step" }, h("span", { class: "install-num" }, String(n)), h("span", null, content));
+    const iphone = runsAsInstalledApp() ? null : h("div", { class: "card install-card" },
+      h("div", { class: "card-title" }, "На iPhone"),
+      h("p", { class: "small muted" }, "Добавьте сайт на экран «Домой», и он будет открываться как приложение:"),
+      h("ol", { class: "install-steps" },
+        step(1, "Откройте этот сайт в ", h("b", null, "Safari"), "."),
+        step(2, "Нажмите ", h("b", null, "«Поделиться»"), " ", h("span", { class: "inline-icon" }, icon("share", 18)), " внизу экрана."),
+        step(3, "Выберите ", h("b", null, "«На экран „Домой“»"), " ", h("span", { class: "inline-icon" }, icon("addBox", 18)), "."),
+        step(4, "Нажмите ", h("b", null, "«Добавить»"), ". На экране появится иконка «Простая химия».")));
+
+    return h("section", { class: "install", "aria-label": "Приложение на телефон" },
+      sectionLabel("Приложение на телефон"),
+      h("div", { class: "install-grid" }, android, iphone));
   }
 
   // ======================= Главная =======================
@@ -146,7 +187,8 @@
         h("div", { class: "card-title" }, Content.AUTHOR),
         h("p", { class: "muted small" }, "Понравился сайт? Расскажи, что улучшить"),
         h("a", { class: "btn btn-outline", href: Content.FEEDBACK_URL, target: "_blank", rel: "noopener noreferrer" },
-          icon("star", 18), h("span", null, "Оставить отзыв"))));
+          icon("star", 18), h("span", null, "Оставить отзыв"))),
+      installSection());
   }
 
   // ======================= Предмет: классы и практики =======================
