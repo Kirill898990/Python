@@ -6,7 +6,7 @@
 вход по логину и паролю и веб-панель администратора. Писать код для сервера не нужно:
 
 - `pb_migrations/` — описание базы: PocketBase сам создаст таблицы, правила доступа и стартовые задания при первом запуске;
-- `pb_public/` — **сайт**. PocketBase сам показывает его по адресу сервера, например `https://himiya-irina.ru/`.
+- `pb_public/` — **сайт**. PocketBase сам показывает его по адресу сервера, например `https://урокискириллом.рф/`.
 
 <p>
   <img src="screenshots/site-glavnaya.png" width="230" alt="Сайт: главная">
@@ -33,7 +33,7 @@ pb_public/
 
 Сборка не нужна: это обычные файлы HTML, CSS и JavaScript.
 Если захотите выложить сайт отдельно от сервера (например, на GitHub Pages), впишите адрес сервера в
-`js/config.js` (`serverUrl: "https://himiya-irina.ru"`).
+`js/config.js` (`serverUrl: "https://урокискириллом.рф"`).
 
 <p><img src="screenshots/site-proverka.png" width="600" alt="Сайт: учитель ставит оценку"></p>
 
@@ -80,13 +80,13 @@ pb_public/
 5. Откройте в браузере:
    - `http://127.0.0.1:8090/` — **сайт**;
    - `http://127.0.0.1:8090/_/` — веб-панель администратора, там видны все таблицы.
-6. Запустите приложение из Android Studio на **эмуляторе**: отладочная сборка сама подключается к серверу на вашем
-   компьютере (адрес `10.0.2.2:8090`).
-   Чтобы проверить на **телефоне** (он должен быть в той же Wi-Fi сети), узнайте IP компьютера (команда `ipconfig`)
-   и добавьте в файл `android/local.properties` строку:
+6. Приложение по умолчанию работает с сервером в интернете. Чтобы оно подключилось к серверу на вашем компьютере,
+   добавьте в файл `android/local.properties` строку и запустите приложение заново:
    ```
-   server.url=http://192.168.1.10:8090
+   server.url=http://10.0.2.2:8090
    ```
+   (`10.0.2.2` — так эмулятор видит ваш компьютер). Для **телефона** в той же Wi-Fi сети вместо `10.0.2.2` впишите
+   IP компьютера (команда `ipconfig`). Когда закончите проверку, удалите эту строку.
 
 ## Как сделать учителя
 
@@ -103,10 +103,34 @@ pb_public/
 
 - **VPS** у российского хостинга (например Timeweb Cloud, Selectel, REG.RU, Yandex Cloud):
   Ubuntu 24.04, 1 ядро, 1 ГБ памяти. Обычно 200–400 ₽ в месяц.
-- **Домен**, например `himiya-irina.ru` (около 200 ₽ в год). В настройках домена создайте **A-запись** с IP-адресом
+- **Домен** — у вас уже есть `урокискириллом.рф`. В настройках DNS домена создайте **A-запись** с IP-адресом
   сервера. Домен нужен для защищённого соединения https: Android не пустит приложение на сервер без https.
 
-### 2. Установите PocketBase
+### 2. Установите всё одной командой
+
+Подключитесь к серверу: на Windows откройте **Терминал** (Пуск → «Терминал») и введите `ssh root@IP-сервера`
+(IP и пароль root даст хостинг; пароль при вводе не отображается, это нормально).
+
+Вставьте команду (правой кнопкой мыши в окне терминала), поменяв почту и пароль администратора на свои:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Kirill898990/Python/refs/heads/claude/android-rustore-setup-mtcs75/server/install.sh | bash -s -- урокискириллом.рф ваша@почта.ru НадёжныйПароль123
+```
+
+Скрипт `install.sh` сам скачает PocketBase и файлы проекта, настроит автозапуск и https, создаст администратора.
+Через пару минут (как только DNS домена укажет на сервер) откроются:
+- `https://урокискириллом.рф/` — сайт;
+- `https://урокискириллом.рф/_/` — панель администратора.
+
+**Обновление** (когда в проекте что-то поменялось): запустите ту же команду без почты и пароля, ученики и оценки
+сохранятся:
+```bash
+curl -fsSL https://raw.githubusercontent.com/Kirill898990/Python/refs/heads/claude/android-rustore-setup-mtcs75/server/install.sh | bash -s -- урокискириллом.рф
+```
+
+Если команда сработала, шаги ниже («Вручную») пропустите и переходите к пункту 4.
+
+### Вручную: установите PocketBase
 
 Подключитесь к серверу по SSH (хостинг даст адрес и пароль) и выполните:
 
@@ -124,7 +148,7 @@ sudo unzip pocketbase_0.40.6_linux_amd64.zip && sudo rm pocketbase_0.40.6_linux_
 sudo /opt/pocketbase/pocketbase superuser upsert ваша@почта.ru НадёжныйПароль
 ```
 
-### 3. Включите автозапуск
+### Вручную: включите автозапуск
 
 Создайте файл службы:
 
@@ -132,7 +156,7 @@ sudo /opt/pocketbase/pocketbase superuser upsert ваша@почта.ru Надё
 sudo nano /etc/systemd/system/pocketbase.service
 ```
 
-Вставьте текст (замените `himiya-irina.ru` на свой домен), сохраните: Ctrl+O, Enter, Ctrl+X.
+Вставьте текст (домен `урокискириллом.рф` записан в нём в виде punycode), сохраните: Ctrl+O, Enter, Ctrl+X.
 
 ```ini
 [Unit]
@@ -143,7 +167,7 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=/opt/pocketbase
-ExecStart=/opt/pocketbase/pocketbase serve himiya-irina.ru
+ExecStart=/opt/pocketbase/pocketbase serve xn--h1aaafbiaikhnfkx.xn--p1ai www.xn--h1aaafbiaikhnfkx.xn--p1ai
 Restart=always
 RestartSec=5
 
@@ -160,20 +184,16 @@ sudo systemctl status pocketbase
 ```
 
 PocketBase сам получит бесплатный сертификат https (Let's Encrypt). Через минуту:
-- `https://himiya-irina.ru/` — сайт для учеников и учителя;
-- `https://himiya-irina.ru/_/` — веб-панель администратора.
+- `https://урокискириллом.рф/` — сайт для учеников и учителя;
+- `https://урокискириллом.рф/_/` — веб-панель администратора.
 
 Чтобы обновить сайт, просто замените файлы в `/opt/pocketbase/pb_public/`, перезапускать сервер не нужно.
 
 ### 4. Подключите приложение
 
-В файле `android/app/build.gradle.kts` впишите свой адрес:
-
-```kotlin
-val releaseServerUrl = "https://himiya-irina.ru"
-```
-
-и соберите release-версию для RuStore (см. `android/README.md`).
+В файле `android/app/build.gradle.kts` уже вписан адрес `https://урокискириллом.рф`
+(в виде `https://xn--h1aaafbiaikhnfkx.xn--p1ai` — так в программах пишутся русские домены).
+Если домен поменяется, впишите новый в строку `releaseServerUrl` и соберите приложение заново (см. `android/README.md`).
 
 ### 5. Резервные копии
 
