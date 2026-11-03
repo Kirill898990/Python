@@ -541,6 +541,50 @@ p { margin: 0; }
 .fab-space { height: 72px; }
 .summary { background: var(--primary-container); color: var(--on-primary-container); border-radius: 12px; padding: 12px; }
 
+/* ---------- Приложение на телефон ---------- */
+.install { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }
+.install-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.install-card { display: flex; flex-direction: column; gap: 10px; }
+.store-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  align-self: flex-start;
+  padding: 8px 18px 8px 12px;
+  border-radius: 12px;
+  background: #111;
+  color: #fff;
+  text-decoration: none;
+  border: 1px solid #444;
+  transition: transform 0.1s;
+}
+.store-badge:hover { transform: translateY(-1px); }
+.store-badge-soon { opacity: 0.55; cursor: default; }
+.store-badge-soon:hover { transform: none; }
+.store-badge-text { display: flex; flex-direction: column; line-height: 1.1; }
+.store-badge-small { font-size: 11px; opacity: 0.85; }
+.store-badge-big { font-size: 20px; font-weight: 700; letter-spacing: 0.2px; }
+@media (prefers-color-scheme: dark) {
+  .store-badge { background: #f3f4f3; color: #111; border-color: #f3f4f3; }
+}
+.install-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: 14px; }
+.install-step { display: flex; gap: 10px; align-items: flex-start; }
+.install-num {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--primary-container);
+  color: var(--on-primary-container);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+}
+.inline-icon { display: inline-flex; vertical-align: -4px; color: var(--primary); }
+.auth-install { width: 100%; margin-top: 16px; }
+
 /* ---------- Вход ---------- */
 .auth { max-width: 480px; margin: 0 auto; padding: 32px 24px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
 .auth-form { width: 100%; display: flex; flex-direction: column; gap: 12px; margin-top: 8px; }
