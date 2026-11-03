@@ -63,12 +63,12 @@ fun TheoryScreen(onBack: () -> Unit) {
                 )
             }
             for (subject in listOf(Subject.CHEMISTRY, Subject.BIOLOGY)) {
-                val grades = Content.grades(subject).filter { it.theoryUrl != null }
-                if (grades.isEmpty()) continue
+                val links = Content.theory.filter { it.subject == subject }
+                if (links.isEmpty()) continue
                 item(key = subject.name) { SectionLabel("Теория по предмету «${subject.title}»") }
-                items(grades, key = { "${subject.name}-${it.number}" }) { grade ->
+                items(links, key = { "${subject.name}-${it.grade}" }) { link ->
                     Card(
-                        onClick = { grade.theoryUrl?.let(context::openLink) },
+                        onClick = { context.openLink(link.url) },
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                     ) {
@@ -79,7 +79,7 @@ fun TheoryScreen(onBack: () -> Unit) {
                             EmojiBadge(subject.emoji, subject.colors().container, size = 40.dp)
                             Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
                                 Text(
-                                    "${grade.number} класс",
+                                    "${link.grade} класс",
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.SemiBold,
                                 )

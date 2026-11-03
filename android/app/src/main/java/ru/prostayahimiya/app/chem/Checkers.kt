@@ -30,6 +30,26 @@ fun checkFormula(input: String, answer: String): FormulaCheck {
 
 /** Уравнение реакции без коэффициентов: «Al + O2 → Al2O3». */
 data class Equation(val reactants: List<String>, val products: List<String>) {
+
+    companion object {
+        private val ARROW = Regex("→|->|=>|=")
+
+        /**
+         * Разбирает запись учителя «Al + O2 = Al2O3» (вместо «=» можно «->» или «→»).
+         * Возвращает null, если записано не так или в формуле ошибка.
+         */
+        fun parse(text: String): Equation? {
+            val sides = text.split(ARROW)
+            if (sides.size != 2) return null
+            fun side(s: String) = s.split('+').map { Chem.normalize(it) }
+            val left = side(sides[0])
+            val right = side(sides[1])
+            val all = left + right
+            if (all.any { it.isEmpty() || Chem.parse(it) !is Chem.ParseResult.Ok }) return null
+            return Equation(left, right)
+        }
+    }
+
     val substances: List<String> get() = reactants + products
 
     /** Запись с коэффициентами: «4Al + 3O₂ → 2Al₂O₃». Коэффициент 1 не пишется. */
@@ -84,3 +104,46 @@ fun balanceOf(equation: Equation, coefficients: List<Int>): List<AtomBalance> {
 }
 
 private tailrec fun gcd(a: Int, b: Int): Int = if (b == 0) a else gcd(b, a % b)
+
+/**
+ * Проверяет задание, которое учитель создаёт в панели учителя.
+ * Возвращает текст ошибки или null, если всё правильно.
+ */
+fun validateTask(type: String, text: String, answer: String): String? {
+    if (text.isBlank()) {
+        return when (type) {
+            "formula" -> "Впиши название вещества"
+            "equation" -> "Впиши уравнение"
+            else -> "Впиши текст вопроса"
+        }
+    }
+    return when (type) {
+        "formula" -> when (val r = Chem.parse(answer)) {
+            is Chem.ParseResult.Error -> if (answer.isBlank()) "Впиши правильную формулу" else "Формула: ${r.message}"
+            is Chem.ParseResult.Ok -> null
+        }
+        "equation" -> validateEquation(text, answer)
+        else -> null
+    }
+}
+
+private fun validateEquation(text: String, answer: String): String? {
+    val sides = text.split(Regex("→|->|=>|="))
+    if (sides.size != 2) return "Запиши уравнение так: Al + O2 = Al2O3"
+    for (formula in sides.flatMap { it.split('+') }) {
+        val r = Chem.parse(formula)
+        if (r is Chem.ParseResult.Error) return "«${formula.trim()}»: ${r.message}"
+    }
+    val equation = Equation.parse(text) ?: return "Запиши уравнение так: Al + O2 = Al2O3"
+    val parts = answer.split(Regex("[\\s,;]+")).filter { it.isNotBlank() }
+    if (parts.size != equation.substances.size) {
+        return "Нужно столько коэффициентов, сколько веществ в уравнении (${equation.substances.size}), через пробел"
+    }
+    return when (val r = checkEquation(equation, parts)) {
+        EquationCheck.Correct -> null
+        is EquationCheck.NotReduced -> "Коэффициенты можно сократить в ${r.divisor} раза"
+        is EquationCheck.Invalid -> r.message
+        is EquationCheck.Unbalanced -> "Коэффициенты не уравнивают реакцию: " +
+            r.mismatches.joinToString("; ") { "${it.element} слева ${it.left}, справа ${it.right}" }
+    }
+}

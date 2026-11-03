@@ -10,7 +10,10 @@ import ru.prostayahimiya.app.chem.EquationCheck
 import ru.prostayahimiya.app.chem.FormulaCheck
 import ru.prostayahimiya.app.chem.checkEquation
 import ru.prostayahimiya.app.chem.checkFormula
-import ru.prostayahimiya.app.data.Content
+import ru.prostayahimiya.app.chem.validateTask
+import ru.prostayahimiya.app.data.parseCoefficients
+import org.junit.Assume.assumeTrue
+import java.io.File
 
 class ChemTest {
 
@@ -64,24 +67,56 @@ class ChemTest {
         assertEquals("4Al + 3O₂ → 2Al₂O₃", eq.pretty(listOf(4, 3, 2)))
     }
 
-    /** Защита от опечаток в Content.kt: все ответы должны быть правильными. */
     @Test
-    fun allContentAnswersAreCorrect() {
-        val ids = mutableSetOf<String>()
-        for (practice in Content.practices()) {
-            for (task in practice.formulas) {
-                assertTrue("Ошибка в формуле ${task.answer}", Chem.parse(task.answer) is Chem.ParseResult.Ok)
-                assertTrue("Повтор id ${task.id}", ids.add(task.id))
+    fun parsesTeacherEquations() {
+        val eq = Equation.parse("Al + O2 = Al2O3")!!
+        assertEquals(listOf("Al", "O2"), eq.reactants)
+        assertEquals(listOf("Al2O3"), eq.products)
+        assertEquals(eq, Equation.parse("Al+O2 -> Al2O3"))
+        assertEquals(eq, Equation.parse("Al + O₂ → Al₂O₃"))
+        assertEquals(null, Equation.parse("Al + O2"))
+        assertEquals(null, Equation.parse("Al + Xx = AlXx"))
+    }
+
+    @Test
+    fun validatesTeacherTasks() {
+        assertEquals(null, validateTask("question", "Что такое валентность?", ""))
+        assertTrue(validateTask("question", " ", "") != null)
+        assertEquals(null, validateTask("formula", "вода", "H2O"))
+        assertTrue(validateTask("formula", "вода", "h2o") != null)
+        assertEquals(null, validateTask("equation", "Al + O2 = Al2O3", "4 3 2"))
+        assertEquals(null, validateTask("equation", "Al + O2 = Al2O3", "4, 3, 2"))
+        assertTrue(validateTask("equation", "Al + O2 = Al2O3", "4 3")!!.contains("сколько веществ"))
+        assertTrue(validateTask("equation", "Al + O2 = Al2O3", "8 6 4")!!.contains("сократить"))
+        assertTrue(validateTask("equation", "Al + O2 = Al2O3", "1 1 1")!!.contains("не уравнивают"))
+        assertTrue(validateTask("equation", "Al + O2", "1 1")!!.contains("Al + O2 = Al2O3"))
+    }
+
+    @Test
+    fun parsesCoefficients() {
+        assertEquals(listOf(4, 3, 2), parseCoefficients("4 3 2"))
+        assertEquals(listOf(2, 1), parseCoefficients(" 2,1 "))
+        assertEquals(null, parseCoefficients("2 x"))
+        assertEquals(null, parseCoefficients(""))
+    }
+
+    /**
+     * Стартовые задания лежат в миграции сервера (server/pb_migrations). Проверяем, что в них нет ошибок.
+     * Если папки server рядом нет, тест пропускается.
+     */
+    @Test
+    fun serverSeedTasksAreCorrect() {
+        val dir = File("../../server/pb_migrations")
+        assumeTrue(dir.isDirectory)
+        val row = Regex("""\["(question|formula|equation)", "((?:[^"\\]|\\.)*)", "((?:[^"\\]|\\.)*)", """)
+        var checked = 0
+        dir.listFiles { f -> f.extension == "js" }!!.forEach { file ->
+            row.findAll(file.readText()).forEach { m ->
+                val (type, text, answer) = m.destructured
+                assertEquals("Ошибка в задании «$text»", null, validateTask(type, text, answer))
+                checked++
             }
-            for (task in practice.equations) {
-                assertEquals(
-                    "Неверный ответ в ${task.id}",
-                    EquationCheck.Correct,
-                    checkEquation(task.equation, task.answer.map { it.toString() }),
-                )
-                assertTrue("Повтор id ${task.id}", ids.add(task.id))
-            }
-            practice.questions.forEach { assertTrue("Повтор id ${it.id}", ids.add(it.id)) }
         }
+        assertTrue("Не найдено ни одного задания", checked > 0)
     }
 }

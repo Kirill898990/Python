@@ -1,9 +1,9 @@
 package ru.prostayahimiya.app
 
 import android.app.Application
-import ru.prostayahimiya.app.data.ProgressStore
+import ru.prostayahimiya.app.data.Repository
 
 class HimiyaApp : Application() {
-    /** Одно хранилище прогресса на всё приложение. */
-    val store: ProgressStore by lazy { ProgressStore(this) }
+    /** Одно хранилище данных на всё приложение. */
+    val repository: Repository by lazy { Repository(this) }
 }

@@ -7,12 +7,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * Хранит на телефоне прогресс ученика: решённые задания, черновики ответов и имя.
- * Данные остаются только на устройстве.
+ * Хранит на телефоне прогресс ученика: решённые задания и черновики ответов.
+ * У каждого аккаунта свой прогресс, даже если на одном телефоне входят разные ученики.
  */
-class ProgressStore(context: Context) {
+class ProgressStore(context: Context, userId: String) {
 
-    private val prefs = context.getSharedPreferences("progress", Context.MODE_PRIVATE)
+    private val prefs = context.getSharedPreferences("progress_$userId", Context.MODE_PRIVATE)
 
     private val _solved = MutableStateFlow(prefs.getStringSet(KEY_SOLVED, emptySet()).orEmpty().toSet())
 
@@ -25,32 +25,20 @@ class ProgressStore(context: Context) {
         prefs.edit { putStringSet(KEY_SOLVED, _solved.value) }
     }
 
-    fun resetPractice(practice: Practice) {
-        _solved.value -= practice.checkableTaskIds.toSet()
+    fun reset(taskIds: Collection<String>) {
+        _solved.value -= taskIds.toSet()
         prefs.edit {
             putStringSet(KEY_SOLVED, _solved.value)
-            practice.questions.forEach { remove(KEY_DRAFT + it.id) }
-            remove(KEY_SENT + practice.id)
+            taskIds.forEach { remove(KEY_DRAFT + it) }
         }
     }
 
-    var studentName: String
-        get() = prefs.getString(KEY_NAME, "").orEmpty()
-        set(value) = prefs.edit { putString(KEY_NAME, value) }
+    fun draft(taskId: String): String = prefs.getString(KEY_DRAFT + taskId, "").orEmpty()
 
-    fun draft(questionId: String): String = prefs.getString(KEY_DRAFT + questionId, "").orEmpty()
-
-    fun saveDraft(questionId: String, text: String) = prefs.edit { putString(KEY_DRAFT + questionId, text) }
-
-    /** Когда ответы по практике последний раз отправлены учителю (0, если ещё не отправлялись). */
-    fun sentAt(practiceId: String): Long = prefs.getLong(KEY_SENT + practiceId, 0L)
-
-    fun markSent(practiceId: String, time: Long) = prefs.edit { putLong(KEY_SENT + practiceId, time) }
+    fun saveDraft(taskId: String, text: String) = prefs.edit { putString(KEY_DRAFT + taskId, text) }
 
     private companion object {
         const val KEY_SOLVED = "solved"
-        const val KEY_NAME = "student_name"
         const val KEY_DRAFT = "draft_"
-        const val KEY_SENT = "sent_"
     }
 }

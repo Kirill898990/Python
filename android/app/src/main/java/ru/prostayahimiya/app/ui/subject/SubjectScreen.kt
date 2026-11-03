@@ -1,10 +1,9 @@
 package ru.prostayahimiya.app.ui.subject
 
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,9 +14,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -38,29 +38,33 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import ru.prostayahimiya.app.R
 import ru.prostayahimiya.app.data.Content
-import ru.prostayahimiya.app.data.Grade
-import ru.prostayahimiya.app.data.ProgressStore
+import ru.prostayahimiya.app.data.Practice
+import ru.prostayahimiya.app.data.Repository
 import ru.prostayahimiya.app.data.Subject
 import ru.prostayahimiya.app.ui.components.BackTopBar
+import ru.prostayahimiya.app.ui.components.cardBorder
+import ru.prostayahimiya.app.ui.components.cardColors
 import ru.prostayahimiya.app.ui.components.colors
 import ru.prostayahimiya.app.ui.components.openLink
 import ru.prostayahimiya.app.ui.components.tasksWord
 
-/** Список классов по предмету: практика, если она есть, и ссылка на теорию. */
+/** Классы по предмету: практики каждого класса и ссылка на теорию. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SubjectScreen(
     subject: Subject,
-    store: ProgressStore,
+    repository: Repository,
     onBack: () -> Unit,
     onOpenPractice: (String) -> Unit,
 ) {
-    val solved by store.solved.collectAsState()
+    val content by repository.content.collectAsState()
+    val solved by repository.progress.solved.collectAsState()
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     val title = when (subject) {
         Subject.CHEMISTRY -> "Практики по химии"
         Subject.BIOLOGY -> "Практики по биологии"
     }
+    val practices = content.practicesOf(subject)
 
     Scaffold(
         topBar = { BackTopBar(title, onBack, scrollBehavior) },
@@ -76,10 +80,15 @@ fun SubjectScreen(
             ),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            items(Content.grades(subject), key = { it.number }) { grade ->
+            items(Content.grades(subject, content), key = { it }) { grade ->
                 GradeCard(
+                    subject = subject,
                     grade = grade,
-                    solvedCount = grade.practice?.checkableTaskIds?.count { it in solved } ?: 0,
+                    practices = practices.filter { it.grade == grade },
+                    progress = { practice ->
+                        val ids = content.tasksOf(practice.id).filter { it.isCheckable }.map { it.id }
+                        ids.count { it in solved } to ids.size
+                    },
                     onOpenPractice = onOpenPractice,
                 )
             }
@@ -88,21 +97,24 @@ fun SubjectScreen(
 }
 
 @Composable
-private fun GradeCard(grade: Grade, solvedCount: Int, onOpenPractice: (String) -> Unit) {
+private fun GradeCard(
+    subject: Subject,
+    grade: Int,
+    practices: List<Practice>,
+    progress: (Practice) -> Pair<Int, Int>,
+    onOpenPractice: (String) -> Unit,
+) {
     val context = LocalContext.current
-    val colors = grade.subject.colors()
-    val practice = grade.practice
+    val colors = subject.colors()
+    val theoryUrl = Content.theoryUrl(subject, grade)
 
-    val cardColors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
-    val border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-    // Карточку можно нажать, только если у класса есть практика.
-    val content: @Composable ColumnScope.() -> Unit = {
-        Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+    Card(colors = cardColors(), border = cardBorder()) {
+        Column(Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 16.dp)) {
                 Surface(shape = CircleShape, color = colors.container, modifier = Modifier.size(48.dp)) {
                     Box(contentAlignment = Alignment.Center) {
                         Text(
-                            grade.number.toString(),
+                            grade.toString(),
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
                             color = colors.onContainer,
@@ -110,54 +122,83 @@ private fun GradeCard(grade: Grade, solvedCount: Int, onOpenPractice: (String) -
                     }
                 }
                 Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
-                    Text(
-                        "${grade.number} класс",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    val total = practice?.checkableTaskIds?.size ?: 0
-                    Text(
-                        when {
-                            practice == null -> "Задания скоро появятся"
-                            solvedCount == total -> "Практика пройдена ✓"
-                            else -> "Решено $solvedCount из $total ${tasksWord(total)}"
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Text("$grade класс", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    if (practices.isEmpty()) {
+                        Text(
+                            "Задания скоро появятся",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
-                if (practice != null) {
+            }
+
+            practices.forEach { practice ->
+                val (done, total) = progress(practice)
+                HorizontalDivider(Modifier.padding(top = 12.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onOpenPractice(practice.id) }
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(practice.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                            if (!practice.published) {
+                                Spacer(Modifier.width(8.dp))
+                                DraftChip()
+                            }
+                        }
+                        Text(
+                            when {
+                                total == 0 -> "Вопросы по теории"
+                                done == total -> "Пройдено ✓"
+                                else -> "Решено $done из $total ${tasksWord(total)}"
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        if (total > 0) {
+                            LinearProgressIndicator(
+                                progress = { done.toFloat() / total },
+                                color = colors.accent,
+                                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                            )
+                        }
+                    }
                     Icon(
                         painterResource(R.drawable.ic_chevron_right),
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 12.dp),
                     )
                 }
             }
-            if (practice != null) {
-                LinearProgressIndicator(
-                    progress = { solvedCount.toFloat() / practice.checkableTaskIds.size },
-                    color = colors.accent,
-                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-                )
-            }
-            Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
-                if (grade.theoryUrl != null) {
-                    TextButton(onClick = { context.openLink(grade.theoryUrl) }) {
-                        Text("Теория в ЯКлассе")
-                        Spacer(Modifier.width(6.dp))
-                        Icon(painterResource(R.drawable.ic_open_in_new), contentDescription = null, modifier = Modifier.size(16.dp))
-                    }
-                } else {
-                    Spacer(Modifier.padding(bottom = 8.dp))
+
+            if (theoryUrl != null) {
+                TextButton(onClick = { context.openLink(theoryUrl) }, modifier = Modifier.padding(horizontal = 4.dp)) {
+                    Text("Теория в ЯКлассе")
+                    Spacer(Modifier.width(6.dp))
+                    Icon(painterResource(R.drawable.ic_open_in_new), contentDescription = null, modifier = Modifier.size(16.dp))
                 }
+            } else {
+                Spacer(Modifier.padding(bottom = 8.dp))
             }
         }
     }
-    if (practice != null) {
-        Card(onClick = { onOpenPractice(practice.id) }, colors = cardColors, border = border, content = content)
-    } else {
-        Card(colors = cardColors, border = border, content = content)
+}
+
+/** Метка «Черновик» — эту практику видит только учитель. */
+@Composable
+fun DraftChip() {
+    Surface(shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.tertiaryContainer) {
+        Text(
+            "Черновик",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onTertiaryContainer,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+        )
     }
 }

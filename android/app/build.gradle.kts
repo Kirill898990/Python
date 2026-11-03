@@ -3,7 +3,20 @@ import java.util.Properties
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.serialization)
 }
+
+// ===== АДРЕС СЕРВЕРА =====
+// Перед сборкой для RuStore впишите сюда адрес своего сервера PocketBase (см. server/README.md).
+val releaseServerUrl = "https://ВАШ-ДОМЕН.ru"
+// Для отладки: эмулятор Android видит ваш компьютер по адресу 10.0.2.2.
+// Чтобы проверять на телефоне, добавьте в файл local.properties строку
+//   server.url=http://IP-адрес-компьютера:8090
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+val debugServerUrl = localProperties.getProperty("server.url") ?: "http://10.0.2.2:8090"
 
 // Данные для подписи release-сборки берутся из файла keystore.properties (его нет в Git).
 // Как его создать, описано в README.md.
@@ -38,7 +51,11 @@ android {
     }
 
     buildTypes {
+        debug {
+            buildConfigField("String", "SERVER_URL", "\"$debugServerUrl\"")
+        }
         release {
+            buildConfigField("String", "SERVER_URL", "\"$releaseServerUrl\"")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -58,6 +75,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -68,6 +86,8 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.browser)
+    implementation(libs.okhttp)
+    implementation(libs.kotlinx.serialization.json)
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)

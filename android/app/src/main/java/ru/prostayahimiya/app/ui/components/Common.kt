@@ -74,6 +74,15 @@ fun EmojiBadge(emoji: String, container: Color, size: Dp = 48.dp) {
     }
 }
 
+/** Карточка с белым фоном и тонкой рамкой, как на сайте. */
+@Composable
+fun cardColors() = androidx.compose.material3.CardDefaults.cardColors(
+    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+)
+
+@Composable
+fun cardBorder() = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BackTopBar(

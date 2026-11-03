@@ -56,7 +56,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -67,36 +66,52 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import ru.prostayahimiya.app.HimiyaApp
 import ru.prostayahimiya.app.R
 import ru.prostayahimiya.app.chem.Chem
 import ru.prostayahimiya.app.chem.EquationCheck
 import ru.prostayahimiya.app.chem.FormulaCheck
-import ru.prostayahimiya.app.data.Content
-import ru.prostayahimiya.app.data.EquationTask
-import ru.prostayahimiya.app.data.FormulaTask
+import ru.prostayahimiya.app.data.Repository
+import ru.prostayahimiya.app.data.Task
+import ru.prostayahimiya.app.data.formatServerDate
 import ru.prostayahimiya.app.ui.components.BackTopBar
+import ru.prostayahimiya.app.ui.components.EmptyBox
+import ru.prostayahimiya.app.ui.components.GradeBadge
 import ru.prostayahimiya.app.ui.components.tasksWord
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PracticeScreen(practiceId: String, onBack: () -> Unit) {
-    val practice = remember(practiceId) { Content.practices().firstOrNull { it.id == practiceId } } ?: return
-    val store = (LocalContext.current.applicationContext as HimiyaApp).store
-    val vm: PracticeViewModel = viewModel(factory = PracticeViewModel.factory(store, practice))
-    val solved by store.solved.collectAsState()
-    val solvedCount = practice.checkableTaskIds.count { it in solved }
+fun PracticeScreen(practiceId: String, repository: Repository, onBack: () -> Unit, onOpenCabinet: () -> Unit) {
+    val content by repository.content.collectAsState()
+    val user by repository.user.collectAsState()
+    val practice = content.practice(practiceId)
+    if (practice == null) {
+        Scaffold(topBar = { BackTopBar("Практика", onBack) }) { padding ->
+            EmptyBox("🗂️", "Эта практика больше недоступна", Modifier.padding(padding))
+        }
+        return
+    }
+    val vm: PracticeViewModel = viewModel(
+        key = "practice-${practice.id}-${content.tasksOf(practice.id).hashCode()}",
+        factory = PracticeViewModel.factory(repository, practice, content.tasksOf(practice.id)),
+    )
+    val solved by repository.progress.solved.collectAsState()
+    val solvedCount = vm.checkableIds.count { it in solved }
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     var menuOpen by remember { mutableStateOf(false) }
     var confirmReset by rememberSaveable { mutableStateOf(false) }
 
+    // Номера разделов зависят от того, какие задания есть в практике.
+    val sections = listOfNotNull(
+        "questions".takeIf { vm.questions.isNotEmpty() },
+        "formulas".takeIf { vm.formulas.isNotEmpty() },
+        "equations".takeIf { vm.equations.isNotEmpty() },
+    )
+    fun number(section: String) = sections.indexOf(section) + 1
+
     Scaffold(
         topBar = {
             BackTopBar(
-                title = "${vm.grade.subject.title} · ${vm.grade.number} класс",
+                title = "${practice.subjectEnum.title} · ${practice.grade} класс",
                 onBack = onBack,
                 scrollBehavior = scrollBehavior,
             ) {
@@ -128,21 +143,24 @@ fun PracticeScreen(practiceId: String, onBack: () -> Unit) {
             ),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            item { ProgressHeader(practice.title, solvedCount, practice.checkableTaskIds.size) }
+            item { ProgressHeader(practice.title, solvedCount, vm.checkableIds.size) }
+            if (sections.isEmpty()) {
+                item { EmptyBox("📝", "В этой практике пока нет заданий") }
+            }
 
-            if (practice.questions.isNotEmpty()) {
+            if (vm.questions.isNotEmpty()) {
                 item {
                     SectionHeader(
-                        "1. Вопросы по теории",
-                        "Ответь своими словами и отправь ответы учителю. Черновик сохраняется сам.",
+                        "${number("questions")}. Вопросы по теории",
+                        "Ответь своими словами. Черновик сохраняется сам, а в конце сдай работу учителю.",
                     )
                 }
-                itemsIndexed(practice.questions, key = { _, q -> q.id }) { i, question ->
+                itemsIndexed(vm.questions, key = { _, q -> q.id }) { i, question ->
                     TaskCard("Вопрос ${i + 1}") {
                         Text(question.text, style = MaterialTheme.typography.bodyLarge)
                         OutlinedTextField(
                             value = vm.answers[question.id].orEmpty(),
-                            onValueChange = { vm.onAnswerChange(question.id, it) },
+                            onValueChange = { vm.onAnswerChange(question, it) },
                             label = { Text("Твой ответ") },
                             minLines = 3,
                             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
@@ -150,30 +168,44 @@ fun PracticeScreen(practiceId: String, onBack: () -> Unit) {
                         )
                     }
                 }
-                item { SendCard(vm, solvedCount) }
             }
 
-            if (practice.formulas.isNotEmpty()) {
+            if (vm.formulas.isNotEmpty()) {
                 item {
                     SectionHeader(
-                        "2. Составь формулы по валентности",
+                        "${number("formulas")}. Составь формулы по валентности",
                         "Пиши латинскими буквами, индексы обычными цифрами: например, H2O.",
                     )
                 }
-                itemsIndexed(practice.formulas, key = { _, t -> t.id }) { i, task ->
-                    FormulaTaskCard(i + 1, task, solved = task.id in solved, vm = vm)
+                itemsIndexed(vm.formulas, key = { _, t -> t.id }) { i, task ->
+                    FormulaTaskCard("${number("formulas")}.${i + 1}", task, solved = task.id in solved, vm = vm)
                 }
             }
 
-            if (practice.equations.isNotEmpty()) {
+            if (vm.equations.isNotEmpty()) {
                 item {
                     SectionHeader(
-                        "3. Расставь коэффициенты",
+                        "${number("equations")}. Расставь коэффициенты",
                         "Впиши коэффициенты в клеточки. Пустая клеточка означает коэффициент 1.",
                     )
                 }
-                itemsIndexed(practice.equations, key = { _, t -> t.id }) { i, task ->
-                    EquationTaskCard(i + 1, task, solved = task.id in solved, vm = vm)
+                itemsIndexed(vm.equations, key = { _, t -> t.id }) { i, task ->
+                    EquationTaskCard("${number("equations")}.${i + 1}", task, solved = task.id in solved, vm = vm)
+                }
+            }
+
+            if (sections.isNotEmpty()) {
+                item {
+                    if (user?.isTeacher == true) {
+                        Text(
+                            "Так практику видят ученики. Сдавать работу учителю не нужно.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 8.dp),
+                        )
+                    } else {
+                        SubmitCard(vm, onOpenCabinet)
+                    }
                 }
             }
         }
@@ -276,21 +308,44 @@ private fun TaskCard(label: String, solved: Boolean = false, content: @Composabl
 }
 
 @Composable
-private fun SendCard(vm: PracticeViewModel, solvedCount: Int) {
-    TaskCard("Отправка учителю") {
-        OutlinedTextField(
-            value = vm.studentName,
-            onValueChange = vm::onNameChange,
-            label = { Text("Имя и класс") },
-            placeholder = { Text("Петя, 8Б") },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Done),
-            modifier = Modifier.fillMaxWidth(),
-        )
+private fun SubmitCard(vm: PracticeViewModel, onOpenCabinet: () -> Unit) {
+    TaskCard("Сдать работу") {
+        val last = vm.lastSubmission
+        if (last != null) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 12.dp)) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "Сдано ${formatServerDate(last.created)}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                    )
+                    Text(
+                        if (last.isGraded) "Оценка учителя" else "Учитель ещё не проверил работу",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                GradeBadge(last.grade)
+            }
+            if (last.comment.isNotBlank()) {
+                Text(
+                    "💬 ${last.comment}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(bottom = 12.dp),
+                )
+            }
+        } else {
+            Text(
+                "Учитель увидит твои ответы и поставит оценку. Её можно будет посмотреть в личном кабинете.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 12.dp),
+            )
+        }
         Button(
-            onClick = { vm.send(solvedCount) },
+            onClick = vm::submit,
             enabled = vm.sendState !is SendState.Sending,
-            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+            modifier = Modifier.fillMaxWidth(),
         ) {
             if (vm.sendState is SendState.Sending) {
                 CircularProgressIndicator(
@@ -303,32 +358,28 @@ private fun SendCard(vm: PracticeViewModel, solvedCount: Int) {
             } else {
                 Icon(painterResource(R.drawable.ic_send), contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(10.dp))
-                Text("Отправить ответы учителю")
+                Text(if (last == null) "Сдать работу учителю" else "Сдать ещё раз")
             }
         }
         when (val state = vm.sendState) {
             is SendState.Error -> Feedback(state.message, FeedbackKind.Error)
-            SendState.Sent -> Feedback("Готово! Ответы отправлены учителю.", FeedbackKind.Success)
-            else -> if (vm.sentAt > 0) {
-                Text(
-                    "Последний раз отправлено ${formatDate(vm.sentAt)}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 8.dp),
-                )
+            SendState.Sent -> {
+                Feedback("Готово! Работа отправлена учителю.", FeedbackKind.Success)
+                TextButton(onClick = onOpenCabinet) { Text("Открыть личный кабинет") }
             }
+            else -> Unit
         }
     }
 }
 
 @Composable
-private fun FormulaTaskCard(number: Int, task: FormulaTask, solved: Boolean, vm: PracticeViewModel) {
+private fun FormulaTaskCard(number: String, task: Task, solved: Boolean, vm: PracticeViewModel) {
     val input = vm.formulaInputs[task.id].orEmpty()
     val result = vm.formulaResults[task.id]
 
-    TaskCard("Задание 2.$number", solved) {
+    TaskCard("Задание $number", solved) {
         Text(
-            task.name.replaceFirstChar { it.uppercase() },
+            task.text.replaceFirstChar { it.uppercase() },
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold,
         )
@@ -357,7 +408,7 @@ private fun FormulaTaskCard(number: Int, task: FormulaTask, solved: Boolean, vm:
             onCheck = { vm.check(task) },
             onHint = { vm.toggleHint(task.id) },
         )
-        if (vm.hintsShown[task.id] == true) HintBox(task.hint)
+        if (vm.hintsShown[task.id] == true) HintBox(task.hint.ifBlank { "У этого задания нет подсказки." })
         when (result) {
             FormulaCheck.Correct -> Feedback("Верно! ${Chem.pretty(task.answer)}", FeedbackKind.Success)
             is FormulaCheck.Hint -> Feedback(result.message, FeedbackKind.Warning)
@@ -374,12 +425,12 @@ private fun FormulaTaskCard(number: Int, task: FormulaTask, solved: Boolean, vm:
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun EquationTaskCard(number: Int, task: EquationTask, solved: Boolean, vm: PracticeViewModel) {
-    val equation = task.equation
+private fun EquationTaskCard(number: String, task: Task, solved: Boolean, vm: PracticeViewModel) {
+    val equation = task.equation!!
     val inputs = vm.coefficients(task)
     val result = vm.equationResults[task.id]
 
-    TaskCard("Задание 3.$number", solved) {
+    TaskCard("Задание $number", solved) {
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -410,7 +461,7 @@ private fun EquationTaskCard(number: Int, task: EquationTask, solved: Boolean, v
             }
         }
         TaskActions(canCheck = true, onCheck = { vm.check(task) }, onHint = { vm.toggleHint(task.id) })
-        if (vm.hintsShown[task.id] == true) HintBox(task.hint)
+        if (vm.hintsShown[task.id] == true) HintBox(task.hint.ifBlank { "У этого задания нет подсказки." })
         when (result) {
             EquationCheck.Correct -> Feedback("Верно! ${equation.pretty(inputs.map { it.toIntOrNull() ?: 1 })}", FeedbackKind.Success)
             is EquationCheck.NotReduced -> Feedback(
@@ -427,7 +478,7 @@ private fun EquationTaskCard(number: Int, task: EquationTask, solved: Boolean, v
             null -> Unit
         }
         if (result != null && result != EquationCheck.Correct) {
-            ShowAnswer(shown = vm.answersShown[task.id] == true, answer = equation.pretty(task.answer)) {
+            ShowAnswer(shown = vm.answersShown[task.id] == true, answer = equation.pretty(task.coefficients)) {
                 vm.showAnswer(task.id)
             }
         }
@@ -536,6 +587,3 @@ private fun Feedback(text: String, kind: FeedbackKind) {
         Text(prefix + text, style = MaterialTheme.typography.bodyMedium, color = content, modifier = Modifier.padding(12.dp))
     }
 }
-
-private fun formatDate(time: Long): String =
-    SimpleDateFormat("d MMMM, HH:mm", Locale.forLanguageTag("ru")).format(Date(time))
