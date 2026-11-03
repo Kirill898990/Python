@@ -3,7 +3,7 @@
 # Установка (или обновление) сервера «Простая химия» на Ubuntu одной командой.
 #
 # Запуск на сервере (под пользователем root):
-#   curl -fsSL https://raw.githubusercontent.com/Kirill898990/Python/refs/heads/claude/android-rustore-setup-mtcs75/server/install.sh \
+#   curl -fsSL https://raw.githubusercontent.com/Kirill898990/Python/refs/heads/main/server/install.sh \
 #     | bash -s -- ДОМЕН ПОЧТА_АДМИНИСТРАТОРА ПАРОЛЬ_АДМИНИСТРАТОРА
 #
 # Что делает:
@@ -21,7 +21,7 @@ ADMIN_EMAIL="${2:-}"
 ADMIN_PASSWORD="${3:-}"
 PB_VERSION="${PB_VERSION:-0.40.6}"
 REPO="${REPO:-Kirill898990/Python}"
-BRANCH="${BRANCH:-claude/android-rustore-setup-mtcs75}"
+BRANCH="${BRANCH:-main}"
 DIR="${DIR:-/opt/pocketbase}"
 
 say() { printf '\n\033[1;32m==> %s\033[0m\n' "$1"; }

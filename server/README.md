@@ -114,7 +114,7 @@ pb_public/
 Вставьте команду (правой кнопкой мыши в окне терминала), поменяв почту и пароль администратора на свои:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Kirill898990/Python/refs/heads/claude/android-rustore-setup-mtcs75/server/install.sh | bash -s -- урокискириллом.рф ваша@почта.ru НадёжныйПароль123
+curl -fsSL https://raw.githubusercontent.com/Kirill898990/Python/refs/heads/main/server/install.sh | bash -s -- урокискириллом.рф ваша@почта.ru НадёжныйПароль123
 ```
 
 Скрипт `install.sh` сам скачает PocketBase и файлы проекта, настроит автозапуск и https, создаст администратора.
@@ -125,7 +125,7 @@ curl -fsSL https://raw.githubusercontent.com/Kirill898990/Python/refs/heads/clau
 **Обновление** (когда в проекте что-то поменялось): запустите ту же команду без почты и пароля, ученики и оценки
 сохранятся:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Kirill898990/Python/refs/heads/claude/android-rustore-setup-mtcs75/server/install.sh | bash -s -- урокискириллом.рф
+curl -fsSL https://raw.githubusercontent.com/Kirill898990/Python/refs/heads/main/server/install.sh | bash -s -- урокискириллом.рф
 ```
 
 Если команда сработала, шаги ниже («Вручную») пропустите и переходите к пункту 4.
