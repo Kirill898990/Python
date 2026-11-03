@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Одноцветная иконка для тематических значков Android 13+. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M46,26h16v4h-2v14.5l17.2,29.8c1.9,3.3 -0.5,7.7 -4.4,7.7H35.2c-3.9,0 -6.3,-4.4 -4.4,-7.7L48,44.5V30h-2z" />
+</vector>

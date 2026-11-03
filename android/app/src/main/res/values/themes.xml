@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Внешний вид окна до запуска Compose. Остальное оформление в ui/theme/Theme.kt -->
+    <style name="Theme.ProstayaHimiya" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/window_light</item>
+    </style>
+</resources>
