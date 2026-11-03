@@ -13,6 +13,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import ru.prostayahimiya.app.BuildConfig
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
@@ -102,8 +103,10 @@ class PocketBase(private val baseUrl: String, private val token: () -> String?) 
 
         val response = try {
             client.newCall(request).execute()
-        } catch (_: IOException) {
-            throw ApiException("Нет связи с сервером. Проверь интернет и попробуй ещё раз.")
+        } catch (e: IOException) {
+            // В отладочной сборке показываем техническую причину, чтобы было проще разобраться.
+            val details = if (BuildConfig.DEBUG) "\n\n[$baseUrl] ${e.javaClass.simpleName}: ${e.message}" else ""
+            throw ApiException("Нет связи с сервером. Проверь интернет и попробуй ещё раз.$details")
         }
         response.use {
             val text = it.body.string()

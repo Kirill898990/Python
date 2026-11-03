@@ -1,0 +1,14 @@
+{
+  "name": "Простая химия",
+  "short_name": "Простая химия",
+  "description": "Практики по химии и биологии для 5–10 классов",
+  "lang": "ru",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f5f6f5",
+  "theme_color": "#1e8e6f",
+  "icons": [
+    { "src": "images/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "images/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

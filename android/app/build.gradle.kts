@@ -7,16 +7,17 @@ plugins {
 }
 
 // ===== АДРЕС СЕРВЕРА =====
-// Перед сборкой для RuStore впишите сюда адрес своего сервера PocketBase (см. server/README.md).
-val releaseServerUrl = "https://ВАШ-ДОМЕН.ru"
-// Для отладки: эмулятор Android видит ваш компьютер по адресу 10.0.2.2.
-// Чтобы проверять на телефоне, добавьте в файл local.properties строку
-//   server.url=http://IP-адрес-компьютера:8090
+// https://урокискириллом.рф (русские домены в программах пишутся так, в виде «punycode»).
+val releaseServerUrl = "https://xn--h1aaafbiaikhnfkx.xn--p1ai"
+// Отладочная версия по умолчанию тоже работает с сервером в интернете.
+// Чтобы проверить с сервером на своём компьютере, добавьте в файл local.properties строку
+//   server.url=http://10.0.2.2:8090          (для эмулятора)
+//   server.url=http://IP-компьютера:8090     (для телефона в той же Wi-Fi сети)
 val localProperties = Properties().apply {
     val file = rootProject.file("local.properties")
     if (file.exists()) file.inputStream().use { load(it) }
 }
-val debugServerUrl = localProperties.getProperty("server.url") ?: "http://10.0.2.2:8090"
+val debugServerUrl = localProperties.getProperty("server.url") ?: releaseServerUrl
 
 // Данные для подписи release-сборки берутся из файла keystore.properties (его нет в Git).
 // Как его создать, описано в README.md.
@@ -33,7 +34,9 @@ android {
         // Имя пакета: после первой публикации в RuStore его менять нельзя.
         applicationId = "ru.prostayahimiya.app"
         minSdk = 26
-        targetSdk = 37
+        // 36, а не 37: приложения под Android 17 без отдельного разрешения не могут подключаться
+        // к компьютеру в локальной сети (например, к серверу на своём ПК). RuStore это не мешает.
+        targetSdk = 36
         // Перед каждой новой загрузкой в RuStore увеличивайте versionCode на 1.
         versionCode = 1
         versionName = "1.0"

@@ -1,0 +1,243 @@
+/*
+ * Маленькая библиотека для построения страниц: элементы, иконки, окна, всплывающие сообщения.
+ * Весь текст вставляется как текст (textContent), поэтому ответы учеников не могут «сломать» страницу.
+ */
+(function () {
+  "use strict";
+
+  /** h("div", {class: "card", onclick: fn}, "текст", другойЭлемент) */
+  function h(tag, props, ...children) {
+    const el = document.createElement(tag);
+    if (props) {
+      for (const [key, value] of Object.entries(props)) {
+        if (value == null || value === false) continue;
+        if (key === "class") el.className = value;
+        else if (key.startsWith("on") && typeof value === "function") el.addEventListener(key.slice(2), value);
+        else if (key === "value") el.value = value;
+        else if (key === "checked") el.checked = !!value;
+        else if (key === "disabled") el.disabled = !!value;
+        else el.setAttribute(key, value === true ? "" : value);
+      }
+    }
+    append(el, children);
+    return el;
+  }
+
+  function append(el, children) {
+    for (const child of children.flat(Infinity)) {
+      if (child == null || child === false) continue;
+      el.append(child instanceof Node ? child : document.createTextNode(String(child)));
+    }
+    return el;
+  }
+
+  /** Заменяет содержимое элемента. */
+  function replace(el, ...children) {
+    el.replaceChildren();
+    return append(el, children);
+  }
+
+  // ---------- Иконки (те же, что в приложении) ----------
+  const ICONS = {
+    back: "M20,11H7.83l5.59,-5.59L12,4l-8,8 8,8 1.41,-1.41L7.83,13H20v-2z",
+    chevron: "M10,6L8.59,7.41 13.17,12l-4.58,4.59L10,18l6,-6z",
+    open: "M19,19H5V5h7V3H5c-1.11,0 -2,0.9 -2,2v14c0,1.1 0.89,2 2,2h14c1.1,0 2,-0.9 2,-2v-7h-2v7zM14,3v2h3.59l-9.83,9.83 1.41,1.41L19,6.41V10h2V3h-7z",
+    send: "M2.01,21L23,12 2.01,3 2,10l15,2 -15,2z",
+    check: "M9,16.17L4.83,12l-1.42,1.41L9,19 21,7l-1.41,-1.41z",
+    bulb: "M9,21c0,0.55 0.45,1 1,1h4c0.55,0 1,-0.45 1,-1v-1H9v1zM12,2C8.14,2 5,5.14 5,9c0,2.38 1.19,4.47 3,5.74V17c0,0.55 0.45,1 1,1h6c0.55,0 1,-0.45 1,-1v-2.26c1.81,-1.27 3,-3.36 3,-5.74 0,-3.86 -3.14,-7 -7,-7z",
+    star: "M12,17.27L18.18,21l-1.64,-7.03L22,9.24l-7.19,-0.61L12,2 9.19,8.63 2,9.24l5.46,4.73L5.82,21z",
+    more: "M12,8c1.1,0 2,-0.9 2,-2s-0.9,-2 -2,-2 -2,0.9 -2,2 0.9,2 2,2zM12,10c-1.1,0 -2,0.9 -2,2s0.9,2 2,2 2,-0.9 2,-2 -0.9,-2 -2,-2zM12,16c-1.1,0 -2,0.9 -2,2s0.9,2 2,2 2,-0.9 2,-2 -0.9,-2 -2,-2z",
+    eye: "M12,4.5C7,4.5 2.73,7.61 1,12c1.73,4.39 6,7.5 11,7.5s9.27,-3.11 11,-7.5c-1.73,-4.39 -6,-7.5 -11,-7.5zM12,17c-2.76,0 -5,-2.24 -5,-5s2.24,-5 5,-5 5,2.24 5,5 -2.24,5 -5,5zM12,9c-1.66,0 -3,1.34 -3,3s1.34,3 3,3 3,-1.34 3,-3 -1.34,-3 -3,-3z",
+    refresh: "M17.65,6.35C16.2,4.9 14.21,4 12,4c-4.42,0 -7.99,3.58 -7.99,8s3.57,8 7.99,8c3.73,0 6.84,-2.55 7.73,-6h-2.08c-0.82,2.33 -3.04,4 -5.65,4 -3.31,0 -6,-2.69 -6,-6s2.69,-6 6,-6c1.66,0 3.14,0.69 4.22,1.78L13,11h7V4l-2.35,2.35z",
+  };
+
+  function icon(name, size = 24) {
+    const ns = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(ns, "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("width", size);
+    svg.setAttribute("height", size);
+    svg.setAttribute("aria-hidden", "true");
+    svg.classList.add("icon");
+    const path = document.createElementNS(ns, "path");
+    path.setAttribute("d", ICONS[name]);
+    path.setAttribute("fill", "currentColor");
+    svg.append(path);
+    return svg;
+  }
+
+  // ---------- Готовые элементы ----------
+
+  /** Верхняя панель со стрелкой «Назад». */
+  function topBar(title, onBack, ...actions) {
+    return h("header", { class: "topbar" },
+      h("button", { class: "icon-btn", "aria-label": "Назад", title: "Назад", onclick: onBack }, icon("back")),
+      h("h1", { class: "topbar-title" }, title),
+      h("div", { class: "topbar-actions" }, actions));
+  }
+
+  function emojiBadge(emoji, colorClass, size = "") {
+    return h("div", { class: `emoji-badge ${colorClass} ${size}` }, emoji);
+  }
+
+  function sectionLabel(text) {
+    return h("div", { class: "section-label" }, text);
+  }
+
+  function button(text, onclick, { kind = "filled", iconName, disabled, cls = "" } = {}) {
+    return h("button", { class: `btn btn-${kind} ${cls}`, onclick, disabled, type: "button" },
+      iconName ? icon(iconName, 18) : null, h("span", null, text));
+  }
+
+  let fieldCounter = 0;
+
+  /** Поле ввода с подписью сверху, как в приложении. */
+  function field({ label, value = "", placeholder, type = "text", multiline = false, rows = 3, oninput, onenter, autocomplete, inputmode, supporting, autocapitalize = "sentences", cls = "" }) {
+    const id = "f" + (++fieldCounter);
+    const input = multiline
+      ? h("textarea", { id, rows, placeholder, autocapitalize, spellcheck: "true", "aria-describedby": id + "-s" })
+      : h("input", { id, type, placeholder, autocomplete, inputmode, autocapitalize, spellcheck: "false", "aria-describedby": id + "-s" });
+    input.value = value;
+    input.addEventListener("input", () => oninput && oninput(input.value));
+    if (onenter && !multiline) input.addEventListener("keydown", (e) => { if (e.key === "Enter") onenter(); });
+    const support = h("div", { class: "field-support", id: id + "-s" }, supporting || "");
+    const wrap = h("div", { class: `field ${cls}` },
+      h("label", { class: "field-label", for: id }, label),
+      input,
+      support);
+    wrap.input = input;
+    wrap.setError = (message) => {
+      wrap.classList.toggle("field-error", !!message);
+      input.setAttribute("aria-invalid", message ? "true" : "false");
+      support.textContent = message || supporting || "";
+    };
+    /** Красная рамка без смены текста под полем. */
+    wrap.setInvalid = (invalid) => {
+      wrap.classList.toggle("field-error", !!invalid);
+      input.setAttribute("aria-invalid", invalid ? "true" : "false");
+    };
+    wrap.setSupport = (text) => { support.textContent = text || ""; };
+    return wrap;
+  }
+
+  /** Сегментированная кнопка выбора: options = [{value, label}] */
+  function segmented(options, selected, onchange) {
+    const root = h("div", { class: "segmented", role: "radiogroup" });
+    function render(current) {
+      replace(root, options.map((o) => h("button", {
+        type: "button",
+        role: "radio",
+        "aria-checked": String(o.value === current),
+        class: "segment" + (o.value === current ? " selected" : ""),
+        onclick: () => { render(o.value); onchange(o.value); },
+      }, o.value === current ? icon("check", 18) : null, h("span", null, o.label))));
+    }
+    render(selected);
+    return root;
+  }
+
+  function chip(label, selected, onclick) {
+    return h("button", { type: "button", class: "chip" + (selected ? " selected" : ""), "aria-pressed": String(selected), onclick },
+      selected ? icon("check", 16) : null, label);
+  }
+
+  function progressBar(fraction, colorClass = "") {
+    const bar = h("div", { class: `progress ${colorClass}`, role: "progressbar", "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": String(Math.round(fraction * 100)) },
+      h("div", { class: "progress-fill" }));
+    bar.firstChild.style.width = `${Math.max(0, Math.min(1, fraction)) * 100}%`;
+    return bar;
+  }
+
+  /** Кружок с оценкой. 0 — «На проверке». */
+  function gradeBadge(grade, big = false) {
+    if (!grade) return h("span", { class: "pill pill-muted" }, "На проверке");
+    const cls = grade === 5 ? "g5" : grade === 4 ? "g4" : grade === 3 ? "g3" : "g2";
+    return h("span", { class: `grade ${cls}${big ? " grade-big" : ""}`, "aria-label": `Оценка ${grade}` }, String(grade));
+  }
+
+  /** Плашка с результатом проверки: success | warning | error */
+  function feedback(text, kind) {
+    const prefix = kind === "success" ? "✅ " : kind === "warning" ? "🤔 " : "❌ ";
+    return h("div", { class: `feedback feedback-${kind}`, role: "status" }, prefix + text);
+  }
+
+  function loading() {
+    return h("div", { class: "center-box" }, h("div", { class: "spinner", "aria-label": "Загрузка" }));
+  }
+
+  function errorBox(message, onRetry) {
+    return h("div", { class: "center-box" },
+      h("div", { class: "big-emoji" }, "😕"),
+      h("p", null, message),
+      button("Попробовать ещё раз", onRetry, { kind: "outline" }));
+  }
+
+  function emptyBox(emoji, text) {
+    return h("div", { class: "center-box muted" }, h("div", { class: "big-emoji" }, emoji), h("p", null, text));
+  }
+
+  // ---------- Окна ----------
+
+  /**
+   * Открывает окно. build(close) возвращает {title, body, actions}.
+   * Окно закрывается кнопкой, клавишей Esc или кликом мимо окна.
+   */
+  function dialog(build, { wide = false } = {}) {
+    const dlg = h("dialog", { class: "dialog" + (wide ? " dialog-wide" : "") });
+    const close = () => { dlg.close(); };
+    dlg.addEventListener("close", () => dlg.remove());
+    dlg.addEventListener("click", (e) => { if (e.target === dlg) close(); });
+    const { title, body, actions } = build(close);
+    append(dlg, [
+      h("h2", { class: "dialog-title" }, title),
+      h("div", { class: "dialog-body" }, body),
+      h("div", { class: "dialog-actions" }, actions),
+    ]);
+    document.body.append(dlg);
+    dlg.showModal();
+    return { close, element: dlg };
+  }
+
+  /** Окно «Вы уверены?». Возвращает Promise<boolean>. */
+  function confirm(title, text, okText) {
+    return new Promise((resolve) => {
+      let answered = false;
+      const d = dialog((close) => ({
+        title,
+        body: h("p", null, text),
+        actions: [
+          button("Отмена", () => close(), { kind: "text" }),
+          button(okText, () => { answered = true; close(); }, { kind: "text" }),
+        ],
+      }));
+      d.element.addEventListener("close", () => resolve(answered));
+    });
+  }
+
+  /** Короткое сообщение внизу экрана. */
+  function toast(message) {
+    const old = document.querySelector(".toast");
+    if (old) old.remove();
+    const el = h("div", { class: "toast", role: "status" }, message);
+    document.body.append(el);
+    setTimeout(() => el.classList.add("toast-hide"), 3000);
+    setTimeout(() => el.remove(), 3400);
+  }
+
+  /** Маленькое меню у кнопки «⋮». items = [{label, onclick}] */
+  function menuButton(items) {
+    const wrap = h("div", { class: "menu-wrap" });
+    const menu = h("div", { class: "menu", role: "menu", hidden: true },
+      items.map((it) => h("button", { type: "button", role: "menuitem", class: "menu-item", onclick: () => { menu.hidden = true; it.onclick(); } }, it.label)));
+    const btn = h("button", { class: "icon-btn", "aria-label": "Ещё", title: "Ещё", "aria-haspopup": "menu", onclick: (e) => { e.stopPropagation(); menu.hidden = !menu.hidden; } }, icon("more"));
+    return append(wrap, [btn, menu]);
+  }
+
+  // Клик в любом месте страницы закрывает открытые меню.
+  document.addEventListener("click", () => document.querySelectorAll(".menu").forEach((m) => { m.hidden = true; }));
+
+  window.UI = {
+    h, append, replace, icon, topBar, emojiBadge, sectionLabel, button, field, segmented, chip,
+    progressBar, gradeBadge, feedback, loading, errorBox, emptyBox, dialog, confirm, toast, menuButton,
+  };
+})();
