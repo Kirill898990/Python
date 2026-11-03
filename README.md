@@ -1,3 +1,7 @@
-<h1>Python</h1>
-<p>Данный сайт создан для моего проекта</p>
-<p>Android-приложение по этому сайту лежит в папке <a href="android/">android</a> (инструкция в <a href="android/README.md">android/README.md</a>), а сервер для входа, оценок и заданий лежит в папке <a href="server/">server</a> (инструкция в <a href="server/README.md">server/README.md</a>).</p>
+<h1>Простая химия с Ириной</h1>
+<p>Практики по химии и биологии для 5–10 классов: сайт, Android-приложение и сервер с общими аккаунтами, заданиями и оценками.</p>
+<ul>
+  <li><a href="server/">server</a> — сервер PocketBase (база данных, вход, оценки) и <b>сайт</b> в папке <code>server/pb_public</code>. Инструкция: <a href="server/README.md">server/README.md</a>.</li>
+  <li><a href="android/">android</a> — Android-приложение для RuStore. Инструкция: <a href="android/README.md">android/README.md</a>.</li>
+</ul>
+<p>Старая версия сайта (папки pages, css, js, images) осталась в истории Git.</p>
