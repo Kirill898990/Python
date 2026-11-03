@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Только для отладочной сборки: разрешает связь с сервером на своём компьютере по http.
+     В release-сборке приложение работает только по защищённому https. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:usesCleartextTraffic="true" />
+</manifest>

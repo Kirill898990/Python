@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Колба: передний слой адаптивной иконки (108x108, безопасная зона 66x66 в центре). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M46,26h16v4h-2v14.5l17.2,29.8c1.9,3.3 -0.5,7.7 -4.4,7.7H35.2c-3.9,0 -6.3,-4.4 -4.4,-7.7L48,44.5V30h-2z" />
+    <path
+        android:fillColor="#9BE3C7"
+        android:pathData="M41.4,63H66.6L74,75.8c0.9,1.6 -0.2,2.7 -1.6,2.7H35.6c-1.4,0 -2.5,-1.1 -1.6,-2.7z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M47.8,71a2.2,2.2 0,1 0,4.4 0a2.2,2.2 0,1 0,-4.4 0zM56.4,68a1.6,1.6 0,1 0,3.2 0a1.6,1.6 0,1 0,-3.2 0zM59.8,74a1.2,1.2 0,1 0,2.4 0a1.2,1.2 0,1 0,-2.4 0z" />
+</vector>

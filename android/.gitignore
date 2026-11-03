@@ -1,0 +1,21 @@
+# Сборка и кэши
+.gradle/
+.kotlin/
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Файлы Android Studio
+.idea/
+*.iml
+local.properties
+
+# Ключ подписи и пароли: НИКОГДА не загружайте их на GitHub
+keystore.properties
+*.jks
+*.keystore
+
+# Готовые сборки
+*.apk
+*.aab

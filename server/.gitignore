@@ -1,0 +1,5 @@
+# База данных и файлы сервера: на GitHub их выкладывать нельзя (там данные учеников)
+pb_data/
+pocketbase
+pocketbase.exe
+*.zip
