@@ -72,6 +72,8 @@
     if (code === "validation_required") return "Заполни это поле";
     if (code === "validation_values_mismatch") return "Пароли не совпадают";
     if (code === "class_code_required") return "Впиши код класса, который дал учитель";
+    if (code === "teacher_required") return "Выбери своего учителя";
+    if (code === "no_teachers") return "Пока нет ни одного учителя. Сначала должен зарегистрироваться учитель";
     if (code === "class_code_invalid") return "Неверный код класса. Проверь его у учителя";
     if (code === "validation_invalid_format" && field === "username") {
       return "Логин: только маленькие латинские буквы, цифры и знаки _ . -";
@@ -377,21 +379,32 @@
       await this.refreshMySubmissions();
     },
 
-    /** Нужен ли код класса для регистрации (его включает учитель). */
+    /** Для регистрации: подтверждённые учителя и нужен ли каждому код класса. */
     async registrationInfo() {
       try {
-        return await request("GET", "api/registration-info");
+        const r = await request("GET", "api/registration-info");
+        return { teachers: r.teachers || [], codeRequired: !!r.codeRequired };
       } catch (_) {
-        return { codeRequired: false };
+        return { teachers: [], codeRequired: false };
       }
     },
 
-    async register(name, group, username, password, passwordConfirm, classCode) {
+    /** Имя учителя ученика (для личного кабинета). */
+    async teacherName(id) {
+      const info = await this.registrationInfo();
+      const t = info.teachers.find((x) => x.id === id);
+      return t ? t.name : "";
+    },
+
+    /** Регистрация. extra: {teacher, classCode} для ученика или {wantsTeacher: true} для учителя. */
+    async register(name, group, username, password, passwordConfirm, extra = {}) {
       await request("POST", "api/collections/users/records", {
         body: {
           name: String(name).trim(),
           group: String(group || "").trim().toUpperCase(),
-          classCode: String(classCode || "").trim().toUpperCase(),
+          classCode: String(extra.classCode || "").trim().toUpperCase(),
+          teacher: extra.teacher || "",
+          wantsTeacher: !!extra.wantsTeacher,
           username: normalizeUsername(username),
           password,
           passwordConfirm,
@@ -493,6 +506,7 @@
         title: p.title.trim(), subject: p.subject, grade: p.grade, position: p.position || 0, published: !!p.published,
         classes: Array.isArray(p.classes) ? p.classes : [], deadline: p.deadline || "",
       };
+      if (!p.id) body.owner = state.user.id; // новая практика принадлежит этому учителю
       const saved = await guard(p.id
         ? request("PATCH", `api/collections/practices/records/${safeId(p.id)}`, { body })
         : request("POST", "api/collections/practices/records", { body }));
@@ -549,7 +563,7 @@
       } else {
         const saved = await guard(existing
           ? request("PATCH", `api/collections/notes/records/${safeId(existing.id)}`, { body: { text: clean } })
-          : request("POST", "api/collections/notes/records", { body: { subject, grade, text: clean } }));
+          : request("POST", "api/collections/notes/records", { body: { subject, grade, text: clean, owner: state.user.id } }));
         notes.push(saved);
       }
       state.content.notes = notes;
@@ -585,6 +599,7 @@
       return guard(request("POST", "api/collections/messages/records", {
         body: {
           author: u.id, authorName: u.name, fromTeacher: !!u.isTeacher, kind: room.kind,
+          teacher: u.isTeacher ? u.id : u.teacher || "",
           group: room.kind === "class" ? room.group : "",
           student: room.kind === "private" ? room.student : "",
           text: String(text).trim(),
@@ -665,7 +680,7 @@
       crypto.getRandomValues(random);
       const code = Array.from(random, (n) => alphabet[n % alphabet.length]).join("");
       return guard(request("POST", "api/collections/class_codes/records", {
-        body: { group: String(group).trim().toUpperCase(), code, active: true },
+        body: { group: String(group).trim().toUpperCase(), code, active: true, owner: state.user.id },
       }));
     },
 
