@@ -303,6 +303,27 @@
   }
 
   // ======================= Практика =======================
+
+  /** Разделы практики в том порядке, в котором они идут на странице. */
+  const SECTIONS = [
+    { type: "question", title: "Вопросы по теории", note: "Ответь своими словами. Черновик сохраняется сам, а в конце сдай работу учителю." },
+    { type: "choice", title: "Тест", note: "Выбери верный ответ и нажми «Проверить»." },
+    { type: "fill", title: "Вставь пропущенные слова", note: "Впиши в пропуски подходящие слова." },
+    { type: "formula", title: "Составь формулы по валентности", note: "Пиши латинскими буквами, индексы обычными цифрами: например, H2O." },
+    { type: "molar", title: "Вычисли молярную массу", note: "Ответ в г/моль. Атомные массы бери из таблицы Менделеева, хлор — 35,5." },
+    { type: "equation", title: "Расставь коэффициенты", note: "Впиши коэффициенты в клеточки. Пустая клеточка означает коэффициент 1." },
+  ];
+
+  /** Картинка к заданию (если учитель её добавил). */
+  function taskImage(task) {
+    if (!task.image) return null;
+    const img = h("img", {
+      class: "task-image", src: Api.fileUrl(task, task.image, "800x0"), alt: "Рисунок к заданию", loading: "lazy",
+      onclick: () => img.classList.toggle("zoomed"),
+    });
+    return img;
+  }
+
   function practice(params) {
     const p = content.practice(params.id);
     if (!p) {
@@ -310,100 +331,186 @@
     }
     const user = Api.state.user;
     const store = Api.progress;
-    const tasks = content.tasksOf(p.id);
-    const questions = tasks.filter((t) => t.type === "question");
-    const formulas = tasks.filter((t) => t.type === "formula" && t.answer);
-    const equations = tasks
-      .filter((t) => t.type === "equation")
-      .map((t) => ({ task: t, eq: Chem.parseEquation(t.text), coefs: Chem.parseCoefficients(t.answer) }))
-      .filter((x) => x.eq && x.coefs);
-    const checkableIds = formulas.map((t) => t.id).concat(equations.map((x) => x.task.id));
-
-    const sections = [questions.length && "q", formulas.length && "f", equations.length && "e"].filter(Boolean);
-    const num = (s) => sections.indexOf(s) + 1;
+    const all = content.tasksOf(p.id).filter((t) => t.type !== "equation" || Chem.parseEquation(t.text));
+    const byType = (type) => all.filter((t) => t.type === type);
+    const sections = SECTIONS.filter((s) => byType(s.type).length);
+    const checkable = all.filter(Api.isCheckable);
+    /** Как получить то, что ввёл ученик, для каждого задания (заполняется ниже). */
+    const inputOf = new Map();
 
     // ----- Прогресс сверху: сколько заданий заполнено (правильность не раскрывается) -----
-    const totalCount = questions.length + formulas.length + equations.length;
     const progressBox = h("div");
-    function filledCount() {
-      const filled = (id) => store.draft(id).replace(/\|/g, "").trim() !== "";
-      return questions.filter((q) => filled(q.id)).length +
-        formulas.filter((t) => filled(t.id)).length +
-        equations.filter((x) => filled(x.task.id)).length;
-    }
+    const filled = (id) => store.draft(id).replace(/[|,]/g, "").trim() !== "";
     function updateProgress() {
-      if (!totalCount) return replace(progressBox);
-      const done = filledCount();
+      if (!all.length) return replace(progressBox);
+      const done = all.filter((t) => filled(t.id)).length;
       replace(progressBox,
-        h("p", { class: "muted small" }, done === totalCount
+        h("p", { class: "muted small" }, done === all.length
           ? "Все задания заполнены — можно сдавать работу"
-          : `Заполнено ${done} из ${totalCount} ${Content.tasksWord(totalCount)}`),
-        h("div", { class: "mt" }, progressBar(done / totalCount)));
+          : `Заполнено ${done} из ${all.length} ${Content.tasksWord(all.length)}`),
+        h("div", { class: "mt" }, progressBar(done / all.length)));
     }
     updateProgress();
+    const saveDraft = (id, value) => { store.saveDraft(id, value); updateProgress(); };
 
-    const taskCard = (label, taskId, ...children) => {
-      const solvedNow = taskId && store.solved().has(taskId);
+    /**
+     * Карточка задания с кнопкой «Проверить». Ответ проверяет сервер.
+     * input() — то, что ввёл ученик; onResult(r) — показать, какие части верны (для пропусков).
+     */
+    function checkCard(task, label, body, { input, onResult, onChange, allowEmpty = false } = {}) {
+      const solvedNow = store.solved().has(task.id);
       const pill = h("span", { class: "pill pill-solved", hidden: !solvedNow }, icon("check", 16), "Решено");
+      const resultBox = h("div", { "aria-live": "polite" });
+      const checkBtn = button("Проверить", check);
+      let busy = false;
       const card = h("div", { class: "card" + (solvedNow ? " solved" : "") },
         h("div", { class: "row" }, h("span", { class: "task-label grow" }, label), pill),
-        children);
-      card.markSolved = () => { pill.hidden = false; card.classList.add("solved"); };
+        taskImage(task),
+        body,
+        h("div", { class: "task-actions" }, checkBtn),
+        resultBox);
+      inputOf.set(task.id, input);
+      card.clearResult = () => { replace(resultBox); if (onChange) onChange(); };
+      async function check() {
+        const value = input();
+        if (busy) return;
+        if (!allowEmpty && !value.replace(/[|,]/g, "").trim()) {
+          replace(resultBox, feedback(task.type === "choice" ? "Выбери ответ" : "Сначала впиши ответ", "warning"));
+          return;
+        }
+        busy = true;
+        checkBtn.disabled = true;
+        replace(checkBtn, h("span", { class: "spinner spinner-sm" }), h("span", null, "Проверяем…"));
+        try {
+          const [r] = await Api.check([{ task: task.id, input: value }]);
+          const kind = r.kind === "correct" ? "success" : r.kind === "hint" ? "warning" : "error";
+          replace(resultBox, feedback(r.message || (r.kind === "correct" ? "Верно!" : "Неверно"), kind));
+          if (onResult) onResult(r);
+          if (r.kind === "correct") {
+            store.markSolved(task.id);
+            pill.hidden = false;
+            card.classList.add("solved");
+          }
+        } catch (e) {
+          replace(resultBox, feedback(e.status ? e.message : "Нет связи с сервером. Проверка работает только с интернетом.", "error"));
+        }
+        busy = false;
+        checkBtn.disabled = false;
+        replace(checkBtn, h("span", null, "Проверить"));
+      }
+      card.check = check;
       return card;
-    };
+    }
+
+    const numberOf = (type) => sections.findIndex((s) => s.type === type) + 1;
 
     // ----- Вопросы -----
-    const questionCards = questions.map((q, i) => taskCard(`Вопрос ${i + 1}`, null,
-      h("p", { class: "mt" }, q.text),
-      h("div", { class: "mt" }, field({
-        label: "Твой ответ", multiline: true, value: store.draft(q.id),
-        oninput: (v) => { store.saveDraft(q.id, v); updateProgress(); },
-      }))));
+    const questionCards = byType("question").map((q, i) => {
+      inputOf.set(q.id, () => store.draft(q.id));
+      return h("div", { class: "card" },
+        h("div", { class: "row" }, h("span", { class: "task-label grow" }, `Вопрос ${i + 1}`)),
+        taskImage(q),
+        h("p", { class: "mt" }, q.text),
+        h("div", { class: "mt" }, field({ label: "Твой ответ", multiline: true, value: store.draft(q.id), oninput: (v) => saveDraft(q.id, v) })));
+    });
+
+    // ----- Тест -----
+    const choiceCards = byType("choice").map((task, i) => {
+      const options = Array.isArray(task.options) ? task.options : [];
+      const chosen = new Set(Chem.parseChoice(store.draft(task.id)));
+      const name = "choice-" + task.id;
+      let card;
+      const value = () => [...chosen].sort((a, b) => a - b).join(",");
+      const list = h("div", { class: "choice-list", role: task.multiple ? "group" : "radiogroup" },
+        options.map((text, k) => {
+          const n = k + 1;
+          const box = h("input", { type: task.multiple ? "checkbox" : "radio", name, checked: chosen.has(n) });
+          box.addEventListener("change", () => {
+            if (!task.multiple) chosen.clear();
+            if (box.checked) chosen.add(n); else chosen.delete(n);
+            saveDraft(task.id, value());
+            card.clearResult();
+          });
+          return h("label", { class: "choice" }, box, h("span", null, Chem.prettyIfFormula(text)));
+        }));
+      card = checkCard(task, `Задание ${numberOf("choice")}.${i + 1}`, [
+        h("p", { class: "mt" }, task.text),
+        task.multiple && h("p", { class: "tiny muted" }, "Верных ответов может быть несколько"),
+        list,
+      ], { input: value });
+      return card;
+    });
+
+    // ----- Пропущенные слова -----
+    const fillCards = byType("fill").map((task, i) => {
+      const parts = String(task.text).split(/_{3,}/);
+      const saved = store.draft(task.id).split("|");
+      let card;
+      const inputs = parts.slice(1).map((_, k) => {
+        const input = h("input", { class: "blank", autocomplete: "off", autocapitalize: "none", spellcheck: "false", "aria-label": `Пропуск ${k + 1}` });
+        input.value = saved[k] || "";
+        const fit = () => { input.style.width = Math.max(6, input.value.length + 2) + "ch"; };
+        fit();
+        input.addEventListener("input", () => {
+          fit();
+          input.classList.remove("blank-ok", "blank-bad");
+          saveDraft(task.id, inputs.map((x) => x.value).join("|"));
+          card.clearResult();
+        });
+        input.addEventListener("keydown", (e) => {
+          if (e.key !== "Enter") return;
+          if (k < inputs.length - 1) inputs[k + 1].focus(); else card.check();
+        });
+        return input;
+      });
+      const sentence = h("p", { class: "fill-text mt" }, parts.map((part, k) => [part, inputs[k] || null]));
+      card = checkCard(task, `Задание ${numberOf("fill")}.${i + 1}`, sentence, {
+        input: () => inputs.map((x) => x.value.trim()).join("|"),
+        onResult: (r) => (r.blanks || []).forEach((ok, k) => {
+          if (inputs[k]) inputs[k].classList.add(ok ? "blank-ok" : "blank-bad");
+        }),
+      });
+      return card;
+    });
 
     // ----- Формулы -----
-    const formulaCards = formulas.map((task, i) => {
-      const resultBox = h("div");
+    const formulaCards = byType("formula").map((task, i) => {
       let card;
       const f = field({
         label: "Формула", value: store.draft(task.id), autocapitalize: "none", inputmode: "latin",
         oninput: (v) => {
-          store.saveDraft(task.id, v);
-          updateProgress();
-          f.setInvalid(false);
+          saveDraft(task.id, v);
           f.setSupport(v.trim() ? "Получается: " + Chem.pretty(Chem.normalize(v)) : "");
-          replace(resultBox);
-          checkBtn.disabled = !v.trim();
+          card.clearResult();
         },
-        onenter: () => check(),
+        onenter: () => card.check(),
       });
       f.setSupport(f.input.value.trim() ? "Получается: " + Chem.pretty(Chem.normalize(f.input.value)) : "");
-      const checkBtn = button("Проверить", () => check(), { disabled: !f.input.value.trim() });
-      function check() {
-        const value = f.input.value;
-        if (!value.trim()) return;
-        store.addAttempt(task.id);
-        const r = Chem.checkFormula(value, task.answer);
-        if (r.kind === "correct") {
-          replace(resultBox, feedback("Верно! " + Chem.pretty(task.answer), "success"));
-          store.markSolved(task.id);
-          card.markSolved();
-        } else {
-          replace(resultBox, feedback(r.message, r.kind === "hint" ? "warning" : "error"));
-          f.setInvalid(r.kind === "wrong");
-        }
-      }
-      card = taskCard(`Задание ${num("f")}.${i + 1}`, task.id,
+      card = checkCard(task, `Задание ${numberOf("formula")}.${i + 1}`, [
         h("div", { class: "task-name" }, task.text.charAt(0).toUpperCase() + task.text.slice(1)),
         h("div", { class: "mt" }, f),
-        h("div", { class: "task-actions" }, checkBtn),
-        resultBox);
+      ], { input: () => f.input.value });
+      return card;
+    });
+
+    // ----- Молярная масса -----
+    const molarCards = byType("molar").map((task, i) => {
+      let card;
+      const input = h("input", { class: "molar-input", inputmode: "decimal", autocomplete: "off", "aria-label": "Молярная масса, г/моль" });
+      input.value = store.draft(task.id);
+      input.addEventListener("input", () => { saveDraft(task.id, input.value); card.clearResult(); });
+      input.addEventListener("keydown", (e) => { if (e.key === "Enter") card.check(); });
+      card = checkCard(task, `Задание ${numberOf("molar")}.${i + 1}`,
+        h("div", { class: "molar mt" }, h("span", { class: "task-name" }, `M(${Chem.pretty(Chem.normalize(task.text))}) =`), input, h("span", null, "г/моль")),
+        { input: () => input.value.trim() });
       return card;
     });
 
     // ----- Уравнения -----
-    const coefsOf = new Map();
-    const equationCards = equations.map(({ task, eq }, i) => {
+    const equationCards = byType("equation").map((task, i) => {
+      const eq = Chem.parseEquation(task.text);
       const saved = store.draft(task.id).split("|");
+      let card;
       const inputs = eq.substances.map((formula, k) => {
         const input = h("input", {
           class: "coef", inputmode: "numeric", maxlength: "2", autocomplete: "off",
@@ -412,72 +519,63 @@
         input.value = saved[k] || "";
         input.addEventListener("input", () => {
           input.value = input.value.replace(/\D/g, "").slice(0, 2);
-          store.saveDraft(task.id, inputs.map((x) => x.value).join("|"));
-          updateProgress();
-          replace(resultBox);
+          saveDraft(task.id, inputs.map((x) => x.value).join("|"));
+          card.clearResult();
         });
         input.addEventListener("keydown", (e) => {
           if (e.key !== "Enter") return;
-          if (k < inputs.length - 1) inputs[k + 1].focus();
-          else check();
+          if (k < inputs.length - 1) inputs[k + 1].focus(); else card.check();
         });
         return input;
       });
-      coefsOf.set(task.id, () => inputs.map((x) => x.value));
-      const resultBox = h("div");
-      let card;
-      function check() {
-        const values = inputs.map((x) => x.value);
-        store.addAttempt(task.id);
-        const r = Chem.checkEquation(eq, values);
-        if (r.kind === "correct") {
-          replace(resultBox, feedback("Верно! " + Chem.prettyEquation(eq, values.map((v) => parseInt(v, 10) || 1)), "success"));
-          store.markSolved(task.id);
-          card.markSolved();
-          return;
-        }
-        if (r.kind === "notReduced") {
-          replace(resultBox, feedback(`Атомов поровну, но все коэффициенты делятся на ${r.divisor}. Нужны самые маленькие.`, "warning"));
-        } else if (r.kind === "unbalanced") {
-          replace(resultBox, feedback("Пока не сходится:\n" + r.mismatches.map((m) => `• ${m.element}: слева ${m.left}, справа ${m.right}`).join("\n"), "error"));
-        } else {
-          replace(resultBox, feedback(r.message, "warning"));
-        }
-      }
       const terms = eq.substances.map((formula, k) => h("span", { class: "term" },
         k > 0 && h("span", { class: "sign" }, k === eq.reactants.length ? "→" : "+"),
         inputs[k], h("span", null, Chem.pretty(formula))));
-      card = taskCard(`Задание ${num("e")}.${i + 1}`, task.id,
-        h("div", { class: "equation" }, terms),
-        h("div", { class: "task-actions" }, button("Проверить", check)),
-        resultBox);
+      // Пустые клеточки — это единицы, поэтому проверять можно и без ввода.
+      card = checkCard(task, `Задание ${numberOf("equation")}.${i + 1}`, h("div", { class: "equation" }, terms),
+        { input: () => inputs.map((x) => x.value).join("|"), allowEmpty: true });
       return card;
     });
 
+    const cardsOf = { question: questionCards, choice: choiceCards, fill: fillCards, formula: formulaCards, molar: molarCards, equation: equationCards };
+
     // ----- Сдача работы -----
     function buildAnswers() {
-      const items = [];
-      questions.forEach((q) => items.push({ kind: "question", prompt: q.text, answer: store.draft(q.id).trim() }));
-      formulas.forEach((t) => {
-        const input = store.draft(t.id);
-        items.push({
-          kind: "formula", prompt: t.text,
-          answer: input.trim() ? Chem.pretty(Chem.normalize(input)) : "",
-          correct: !!input.trim() && Chem.checkFormula(input, t.answer).kind === "correct",
-          attempts: store.attempts(t.id),
-        });
+      return all.map((t) => {
+        const input = (inputOf.get(t.id) || (() => store.draft(t.id)))();
+        const empty = !String(input).replace(/[|,]/g, "").trim();
+        const item = { task: t.id, kind: t.type, prompt: t.text, answer: "", input };
+        switch (t.type) {
+          case "question":
+            item.answer = String(input).trim();
+            delete item.input;
+            break;
+          case "formula":
+            item.answer = empty ? "" : Chem.pretty(Chem.normalize(input));
+            break;
+          case "equation": {
+            const eq = Chem.parseEquation(t.text);
+            const values = String(input).split("|");
+            item.prompt = Chem.prettyEquation(eq);
+            item.answer = empty ? "" : Chem.prettyEquation(eq, eq.substances.map((_, k) => parseInt(values[k], 10) || 1));
+            break;
+          }
+          case "choice":
+            item.answer = Chem.parseChoice(input).map((n) => (t.options || [])[n - 1]).filter(Boolean).map(Chem.prettyIfFormula).join("; ");
+            break;
+          case "fill": {
+            const words = String(input).split("|");
+            let k = 0;
+            item.answer = empty ? "" : String(t.text).replace(/_{3,}/g, () => `«${(words[k++] || "").trim() || "…"}»`);
+            break;
+          }
+          case "molar":
+            item.prompt = `M(${Chem.pretty(Chem.normalize(t.text))})`;
+            item.answer = empty ? "" : String(input).trim() + " г/моль";
+            break;
+        }
+        return item;
       });
-      equations.forEach(({ task, eq }) => {
-        const values = coefsOf.get(task.id)();
-        const filled = values.some((v) => v.trim());
-        items.push({
-          kind: "equation", prompt: Chem.prettyEquation(eq),
-          answer: filled ? Chem.prettyEquation(eq, values.map((v) => parseInt(v, 10) || 1)) : "",
-          correct: filled && Chem.checkEquation(eq, values).kind === "correct",
-          attempts: store.attempts(task.id),
-        });
-      });
-      return items;
     }
 
     function submitCard() {
@@ -513,7 +611,8 @@
         sendBtn.disabled = true;
         replace(sendBtn, h("span", { class: "spinner spinner-sm" }), h("span", null, "Отправляем…"));
         try {
-          last = await Api.submit(p, items, items.filter((x) => x.correct === true).length, checkableIds.length);
+          // Сколько верно, сервер посчитает сам.
+          last = await Api.submit(p, items, 0, checkable.length);
           replace(resultBox,
             feedback("Готово! Работа отправлена учителю.", "success"),
             h("a", { class: "btn btn-text mt", href: "#/cabinet" }, "Открыть личный кабинет"));
@@ -533,7 +632,7 @@
     const reset = async () => {
       const ok = await confirm("Начать заново?", "Черновики ответов и отметки о решённых заданиях по этой практике удалятся. Сданные работы останутся у учителя.", "Начать заново");
       if (!ok) return;
-      store.reset(questions.map((q) => q.id).concat(checkableIds));
+      store.reset(all.map((t) => t.id));
       App.render();
     };
 
@@ -543,21 +642,11 @@
       h("h2", { class: "home-title" }, p.title),
       progressBox,
       sections.length === 0 && emptyBox("📝", "В этой практике пока нет заданий"),
-      questions.length > 0 && [
-        h("h3", { class: "section-title" }, `${num("q")}. Вопросы по теории`),
-        h("p", { class: "muted small" }, "Ответь своими словами. Черновик сохраняется сам, а в конце сдай работу учителю."),
-        questionCards,
-      ],
-      formulas.length > 0 && [
-        h("h3", { class: "section-title" }, `${num("f")}. Составь формулы по валентности`),
-        h("p", { class: "muted small" }, "Пиши латинскими буквами, индексы обычными цифрами: например, H2O."),
-        formulaCards,
-      ],
-      equations.length > 0 && [
-        h("h3", { class: "section-title" }, `${num("e")}. Расставь коэффициенты`),
-        h("p", { class: "muted small" }, "Впиши коэффициенты в клеточки. Пустая клеточка означает коэффициент 1."),
-        equationCards,
-      ],
+      sections.map((s, i) => [
+        h("h3", { class: "section-title" }, `${i + 1}. ${s.title}`),
+        h("p", { class: "muted small" }, s.note),
+        cardsOf[s.type],
+      ]),
       sections.length > 0 && (user && user.isTeacher
         ? h("p", { class: "muted small" }, "Так практику видят ученики. Сдавать работу учителю не нужно.")
         : submitCard()));
@@ -611,7 +700,9 @@
     const body = asyncBlock(() => Api.submission(params.id), (s) => {
       let qn = 0;
       const answers = (s.answers || []).map((a) => {
-        const title = a.kind === "question" ? `Вопрос ${++qn}` : a.kind === "formula" ? `Формула: ${a.prompt}` : "Уравнение";
+        const title = a.kind === "question" ? `Вопрос ${++qn}`
+          : a.kind === "formula" ? `Формула: ${a.prompt}`
+          : ({ equation: "Уравнение", choice: "Тест", fill: "Пропущенные слова", molar: "Молярная масса" })[a.kind] || "Задание";
         const tries = a.attempts > 0 ? ` · попыток: ${a.attempts}` : "";
         const status = a.correct === true
           ? h("span", { class: "small bold ok" }, "✅ верно" + tries)

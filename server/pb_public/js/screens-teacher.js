@@ -9,7 +9,10 @@
 
   const TYPES = {
     question: { title: "Вопрос", emoji: "❓" },
+    choice: { title: "Тест", emoji: "☑️" },
+    fill: { title: "Пропуски", emoji: "✏️" },
     formula: { title: "Формула", emoji: "🧪" },
+    molar: { title: "Молярная масса", emoji: "🧮" },
     equation: { title: "Уравнение", emoji: "⚖️" },
   };
 
@@ -201,20 +204,30 @@
         tasks.map((t, i) => taskRow(t, i, tasks)),
         h("p", { class: "small bold mt" }, "Добавить задание:"),
         h("div", { class: "row-wrap" }, Object.entries(TYPES).map(([type, info]) =>
-          button("+ " + info.title, () => editTask({ practice: id, type, text: "", answer: "", hint: "", position: Math.max(0, ...tasks.map((x) => x.position || 0)) + 1 }), { kind: "outline" }))),
+          button("+ " + info.title, () => editTask({ practice: id, type, text: "", answer: "", options: [], position: Math.max(0, ...tasks.map((x) => x.position || 0)) + 1 }), { kind: "outline" }))),
         button("Удалить практику", deletePractice, { kind: "outline", cls: "btn-danger btn-block mt-lg" }));
     }
 
     function taskRow(t, index, tasks) {
       const eq = t.type === "equation" ? Chem.parseEquation(t.text) : null;
-      const answer = t.type === "formula" ? Chem.pretty(t.answer)
-        : t.type === "equation" ? (eq ? Chem.prettyEquation(eq, Chem.parseCoefficients(t.answer)) : t.answer) : null;
+      const molar = t.type === "molar" ? Chem.molarMass(t.text) : null;
+      const options = Array.isArray(t.options) ? t.options : [];
+      const answer = {
+        formula: () => Chem.pretty(t.answer || ""),
+        equation: () => (eq ? Chem.prettyEquation(eq, Chem.parseCoefficients(t.answer)) : t.answer),
+        choice: () => Chem.parseChoice(t.answer).map((n) => options[n - 1]).filter(Boolean).map(Chem.prettyIfFormula).join("; "),
+        fill: () => String(t.answer || "").split("|").join("; "),
+        molar: () => (molar && molar.ok ? Chem.formatNumber(molar.value) + " г/моль" : ""),
+      }[t.type];
+      const shown = eq ? Chem.prettyEquation(eq) : molar ? `M(${Chem.pretty(t.text)})` : t.text;
       const info = TYPES[t.type] || TYPES.question;
       return h("div", { class: "card task-row" },
         h("div", { class: "grow", role: "button", tabindex: "0", onclick: () => editTask(t), onkeydown: (e) => { if (e.key === "Enter") editTask(t); } },
           h("div", { class: "task-label" }, `${index + 1}. ${info.emoji} ${info.title}`),
-          h("div", { class: "task-row-text" }, eq ? Chem.prettyEquation(eq) : t.text),
-          answer && h("div", { class: "small ok" }, "Ответ: " + answer)),
+          h("div", { class: "task-row-text" }, shown),
+          t.type === "choice" && h("div", { class: "tiny muted" }, options.map((o, k) => `${k + 1}) ${Chem.prettyIfFormula(o)}`).join("   ")),
+          answer && answer() && h("div", { class: "small ok" }, "Ответ: " + answer()),
+          t.image && h("img", { class: "task-row-image", src: Api.fileUrl(t, t.image, "800x0"), alt: "Картинка к заданию" })),
         h("div", { class: "arrows" },
           h("button", { class: "icon-btn", "aria-label": "Выше", title: "Выше", disabled: index === 0, onclick: () => move(tasks, index, index - 1) }, "▲"),
           h("button", { class: "icon-btn", "aria-label": "Ниже", title: "Ниже", disabled: index === tasks.length - 1, onclick: () => move(tasks, index, index + 1) }, "▼")),
@@ -261,26 +274,112 @@
 
     /** Окно добавления и изменения задания. Ответ проверяется сразу, чтобы в задание не попала ошибка. */
     function editTask(task) {
-      const t = { ...task };
-      const info = TYPES[t.type];
+      const t = { ...task, options: Array.isArray(task.options) && task.options.length ? task.options.slice() : ["", ""] };
+      const info = TYPES[t.type] || TYPES.question;
+      // Картинка: новый файл, убрать старую или оставить как есть.
+      let imageFile = null;
+      let removeImage = false;
       dialog((close) => {
         const error = h("div", { class: "dialog-error" });
         const saveBtn = button("Сохранить", save, { kind: "text" });
-        const answerField = t.type === "question" ? null : field({
+        const touched = () => String(t.text).trim() || String(t.answer || "").trim() || t.options.some((o) => o.trim());
+
+        // ----- Текст задания -----
+        const textLabel = {
+          question: "Текст вопроса", choice: "Вопрос", fill: "Текст с пропусками", formula: "Название вещества",
+          molar: "Формула вещества", equation: "Уравнение без коэффициентов",
+        }[t.type];
+        const placeholder = { formula: "хлорид алюминия", equation: "Al + O2 = Al2O3", molar: "H2SO4", fill: "Вода состоит из [водорода] и [кислорода]." }[t.type];
+        let fillSource = t.type === "fill" && t.id ? Chem.joinBlanks(t.text, t.answer) : t.text;
+        const textField = field({
+          label: textLabel, placeholder,
+          multiline: ["question", "choice", "fill"].includes(t.type),
+          value: t.type === "fill" ? fillSource : t.text,
+          autocapitalize: ["equation", "molar"].includes(t.type) ? "none" : "sentences",
+          supporting: t.type === "fill" ? "Правильные слова пишите в квадратных скобках. Несколько вариантов — через «/»: [водорода/H]." : "",
+          oninput: (v) => {
+            if (t.type === "fill") fillSource = v; else t.text = v;
+            validate();
+          },
+        });
+
+        // ----- Правильный ответ -----
+        const answerField = ["formula", "equation"].includes(t.type) ? field({
           label: t.type === "formula" ? "Правильная формула" : "Коэффициенты по порядку",
           placeholder: t.type === "formula" ? "AlCl3" : "4 3 2",
           value: t.answer, autocapitalize: "none", oninput: (v) => { t.answer = v; validate(); },
+        }) : null;
+
+        // ----- Варианты ответа для теста -----
+        let correct = new Set(t.type === "choice" ? Chem.parseChoice(t.answer) : []);
+        const optionsBox = h("div", { class: "stack-sm" });
+        function renderOptions() {
+          replace(optionsBox,
+            h("div", { class: "small bold" }, "Варианты ответа — отметьте галочкой верные"),
+            t.options.map((text, k) => {
+              const box = h("input", { type: "checkbox", checked: correct.has(k + 1), "aria-label": `Вариант ${k + 1} верный` });
+              box.addEventListener("change", () => {
+                if (box.checked) correct.add(k + 1); else correct.delete(k + 1);
+                validate();
+              });
+              const input = h("input", { type: "text", placeholder: `Вариант ${k + 1}`, "aria-label": `Вариант ${k + 1}` });
+              input.value = text;
+              input.addEventListener("input", () => { t.options[k] = input.value; validate(); });
+              const remove = h("button", {
+                class: "icon-btn", type: "button", "aria-label": `Удалить вариант ${k + 1}`, title: "Удалить вариант", disabled: t.options.length <= 2,
+                onclick: () => {
+                  t.options.splice(k, 1);
+                  correct = new Set([...correct].filter((n) => n !== k + 1).map((n) => (n > k + 1 ? n - 1 : n)));
+                  renderOptions();
+                  validate();
+                },
+              }, icon("delete", 18));
+              return h("div", { class: "option-row" }, box, input, remove);
+            }),
+            t.options.length < 8 && button("+ Вариант", () => { t.options.push(""); renderOptions(); validate(); }, { kind: "text" }));
+        }
+        if (t.type === "choice") renderOptions();
+
+        // ----- Картинка -----
+        const imageBox = h("div", { class: "image-edit" });
+        const fileInput = h("input", { type: "file", accept: "image/*", hidden: true });
+        fileInput.addEventListener("change", () => {
+          const file = fileInput.files && fileInput.files[0];
+          if (!file) return;
+          if (!file.type.startsWith("image/")) return toast("Это не картинка");
+          imageFile = file;
+          removeImage = false;
+          renderImage();
         });
-        const textField = field({
-          label: t.type === "question" ? "Текст вопроса" : t.type === "formula" ? "Название вещества" : "Уравнение без коэффициентов",
-          placeholder: t.type === "formula" ? "хлорид алюминия" : t.type === "equation" ? "Al + O2 = Al2O3" : null,
-          multiline: t.type === "question", value: t.text, autocapitalize: t.type === "equation" ? "none" : "sentences",
-          oninput: (v) => { t.text = v; validate(); },
-        });
+        let previewUrl = "";
+        function renderImage() {
+          if (previewUrl) URL.revokeObjectURL(previewUrl);
+          previewUrl = imageFile ? URL.createObjectURL(imageFile) : "";
+          const src = previewUrl || (!removeImage && t.image ? Api.fileUrl(t, t.image, "800x0") : "");
+          replace(imageBox,
+            src && h("img", { src, alt: "Картинка к заданию" }),
+            button(src ? "Заменить картинку" : "Добавить картинку", () => fileInput.click(), { kind: "outline" }),
+            src && button("Убрать", () => { imageFile = null; removeImage = true; renderImage(); }, { kind: "text" }),
+            fileInput);
+        }
+        renderImage();
+
+        /** Задание в том виде, в каком оно сохранится. */
+        function current() {
+          if (t.type === "fill") {
+            const split = Chem.splitBlanks(fillSource);
+            return { text: split.text, answer: split.answer, options: [] };
+          }
+          if (t.type === "choice") {
+            return { text: t.text, answer: [...correct].sort((a, b) => a - b).join(","), options: t.options.map((o) => o.trim()) };
+          }
+          return { text: t.text, answer: t.type === "molar" ? "" : t.answer, options: [] };
+        }
 
         function validate() {
-          const message = Chem.validateTask(t.type, t.text, t.answer);
-          error.textContent = message && (t.text.trim() || String(t.answer).trim()) ? "⚠️ " + message : "";
+          const c = current();
+          const message = Chem.validateTask(t.type, c.text, c.answer, c.options);
+          error.textContent = message && touched() ? "⚠️ " + message : "";
           saveBtn.disabled = !!message;
           if (t.type === "formula") answerField.setSupport(t.answer.trim() ? "Получается: " + Chem.pretty(Chem.normalize(t.answer)) : "");
           if (t.type === "equation") {
@@ -290,35 +389,78 @@
               ? "Получается: " + Chem.prettyEquation(eq, coefs)
               : "Через пробел, для каждого вещества. 1 тоже пишите.");
           }
+          if (t.type === "molar") {
+            const m = Chem.molarMass(t.text);
+            textField.setSupport(t.text.trim() && m.ok ? `Получается: M(${Chem.pretty(Chem.normalize(t.text))}) = ${Chem.formatNumber(m.value)} г/моль` : "");
+          }
+          if (t.type === "fill") {
+            textField.setSupport(c.text.trim() && !message
+              ? "Ученик увидит: " + c.text
+              : "Правильные слова пишите в квадратных скобках. Несколько вариантов — через «/»: [водорода/H].");
+          }
+        }
+
+        /** Большие фото с телефона уменьшаем до 1600 точек по длинной стороне. */
+        async function shrink(file) {
+          if (file.type === "image/gif" || typeof createImageBitmap !== "function") return file;
+          try {
+            const bitmap = await createImageBitmap(file);
+            const scale = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
+            if (scale === 1 && file.size < 1.5 * 1024 * 1024) return file;
+            const canvas = document.createElement("canvas");
+            canvas.width = Math.round(bitmap.width * scale);
+            canvas.height = Math.round(bitmap.height * scale);
+            const ctx = canvas.getContext("2d");
+            ctx.fillStyle = "#fff";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+            const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.85));
+            return blob ? new File([blob], "image.jpg", { type: "image/jpeg" }) : file;
+          } catch (_) {
+            return file;
+          }
         }
 
         async function save() {
-          if (Chem.validateTask(t.type, t.text, t.answer)) return;
+          const c = current();
+          if (Chem.validateTask(t.type, c.text, c.answer, c.options)) return;
+          const data = { ...t, text: c.text, answer: c.answer, options: c.options, multiple: t.type === "choice" && correct.size > 1 };
           // Приводим к единому виду: «Al+O2→Al2O3» станет «Al + O2 = Al2O3», формула без пробелов.
-          if (t.type === "question") t.answer = "";
-          t.hint = ""; // подсказок больше нет: ученики решают сами
-          if (t.type === "formula") t.answer = Chem.normalize(t.answer);
+          if (t.type === "question") data.answer = "";
+          if (t.type === "formula") data.answer = Chem.normalize(data.answer);
+          if (t.type === "molar") data.text = Chem.normalize(data.text);
           if (t.type === "equation") {
-            const eq = Chem.parseEquation(t.text);
-            t.text = eq.reactants.join(" + ") + " = " + eq.products.join(" + ");
-            t.answer = Chem.parseCoefficients(t.answer).join(" ");
+            const eq = Chem.parseEquation(data.text);
+            data.text = eq.reactants.join(" + ") + " = " + eq.products.join(" + ");
+            data.answer = Chem.parseCoefficients(data.answer).join(" ");
           }
           saveBtn.disabled = true;
+          replace(saveBtn, h("span", null, "Сохраняем…"));
           try {
-            await Api.saveTask(t);
+            const saved = await Api.saveTask(data);
+            if (imageFile) await Api.setTaskImage(saved.id, await shrink(imageFile));
+            else if (removeImage && t.image) await Api.setTaskImage(saved.id, null);
             close();
             toast(task.id ? "Задание сохранено" : "Задание добавлено");
             renderTasks();
           } catch (e) {
             error.textContent = e.message;
             saveBtn.disabled = false;
+            replace(saveBtn, h("span", null, "Сохранить"));
           }
         }
 
         validate();
         return {
           title: (task.id ? "Задание: " : "Новое задание: ") + info.title.toLowerCase(),
-          body: [textField, answerField, error],
+          body: [
+            textField,
+            answerField,
+            t.type === "choice" && optionsBox,
+            h("div", { class: "small bold" }, "Картинка (необязательно)"),
+            imageBox,
+            error,
+          ],
           actions: [button("Отмена", close, { kind: "text" }), saveBtn],
         };
       }, { wide: true });

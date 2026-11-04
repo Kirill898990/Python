@@ -61,7 +61,7 @@ say "Скачиваю сайт и базу с GitHub (ветка $BRANCH)"
 curl -fsSL -o "$TMP/src.zip" "https://github.com/${REPO}/archive/refs/heads/${BRANCH}.zip"
 unzip -q "$TMP/src.zip" -d "$TMP/src"
 SRC="$(find "$TMP/src" -mindepth 2 -maxdepth 2 -type d -name server | head -n 1)"
-[ -n "$SRC" ] && [ -d "$SRC/pb_migrations" ] && [ -d "$SRC/pb_public" ] || fail "в архиве не найдена папка server"
+[ -n "$SRC" ] && [ -d "$SRC/pb_migrations" ] && [ -d "$SRC/pb_public" ] && [ -d "$SRC/pb_hooks" ] || fail "в архиве не найдена папка server"
 
 # Останавливаем сервер на время обновления (при первой установке его ещё нет).
 systemctl stop pocketbase 2>/dev/null || true
@@ -69,15 +69,16 @@ systemctl stop pocketbase 2>/dev/null || true
 install -m 755 "$TMP/pb/pocketbase" "$DIR/pocketbase"
 mkdir -p "$DIR/pb_migrations"
 cp "$SRC"/pb_migrations/*.js "$DIR/pb_migrations/"
-rm -rf "$DIR/pb_public"
+rm -rf "$DIR/pb_public" "$DIR/pb_hooks"
 cp -r "$SRC/pb_public" "$DIR/pb_public"
+cp -r "$SRC/pb_hooks" "$DIR/pb_hooks"   # проверка ответов на сервере
 
 # Первая установка или обновление? Базу при обновлении не трогаем.
 FRESH_INSTALL=0
 [ -d "$DIR/pb_data" ] || FRESH_INSTALL=1
 
 say "Применяю структуру базы"
-"$DIR/pocketbase" migrate up --dir "$DIR/pb_data" --migrationsDir "$DIR/pb_migrations" >/dev/null
+"$DIR/pocketbase" migrate up --dir "$DIR/pb_data" --migrationsDir "$DIR/pb_migrations" --hooksDir "$DIR/pb_hooks" >/dev/null
 
 if [ -n "$ADMIN_EMAIL" ]; then
   say "Создаю администратора $ADMIN_EMAIL"
@@ -95,7 +96,7 @@ Wants=network-online.target
 Type=simple
 User=root
 WorkingDirectory=$DIR
-ExecStart=$DIR/pocketbase serve $DOMAIN www.$DOMAIN --dir $DIR/pb_data --migrationsDir $DIR/pb_migrations --publicDir $DIR/pb_public
+ExecStart=$DIR/pocketbase serve $DOMAIN www.$DOMAIN --dir $DIR/pb_data --migrationsDir $DIR/pb_migrations --hooksDir $DIR/pb_hooks --publicDir $DIR/pb_public
 Restart=always
 RestartSec=5
 LimitNOFILE=4096

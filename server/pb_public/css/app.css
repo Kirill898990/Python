@@ -665,3 +665,32 @@ p { margin: 0; }
 .chat-send { flex: none; background: var(--primary); color: var(--on-primary); width: 44px; height: 44px; }
 .chat-send:hover:not(:disabled) { background: color-mix(in srgb, var(--primary) 88%, black); }
 .chat-send:disabled { background: var(--surface-highest); color: var(--muted); opacity: 1; }
+
+/* ---------- Новые виды заданий ---------- */
+.task-image { max-width: 100%; max-height: 320px; width: auto; margin-top: 10px; border-radius: 12px; border: 1px solid var(--outline-variant); cursor: zoom-in; background: var(--surface-container); }
+.task-image.zoomed { max-height: none; width: 100%; cursor: zoom-out; }
+.choice-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.choice { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--outline-variant); border-radius: 12px; cursor: pointer; }
+.choice:hover { background: var(--surface-container); }
+.choice input { width: 20px; height: 20px; margin: 0; accent-color: var(--primary); flex: none; }
+.choice:has(input:checked) { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 8%, transparent); }
+.fill-text { line-height: 2.4; }
+.blank {
+  min-width: 6ch; max-width: 100%; padding: 4px 8px; margin: 0 2px;
+  border: none; border-bottom: 2px solid var(--outline); border-radius: 6px 6px 0 0;
+  background: var(--surface-container); font: inherit; text-align: center;
+}
+.blank:focus { outline: none; border-bottom-color: var(--primary); }
+.blank-ok { border-bottom-color: var(--primary); background: color-mix(in srgb, var(--primary) 14%, transparent); }
+.blank-bad { border-bottom-color: var(--error); background: color-mix(in srgb, var(--error) 12%, transparent); }
+.molar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.molar-input { width: 9ch; padding: 10px 12px; border: 1px solid var(--outline); border-radius: 8px; background: var(--card); font: inherit; font-size: 18px; text-align: center; }
+.molar-input:focus { outline: 2px solid var(--primary); outline-offset: -1px; border-color: transparent; }
+
+/* Редактор: варианты ответа и картинка */
+.option-row { display: flex; align-items: center; gap: 8px; }
+.option-row input[type="checkbox"] { width: 22px; height: 22px; accent-color: var(--primary); flex: none; }
+.option-row input[type="text"] { flex: 1; min-width: 0; padding: 10px 12px; border: 1px solid var(--outline); border-radius: 8px; background: var(--card); font: inherit; }
+.image-edit { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.image-edit img { max-height: 96px; border-radius: 8px; border: 1px solid var(--outline-variant); }
+.task-row-image { max-height: 56px; border-radius: 6px; margin-top: 4px; }

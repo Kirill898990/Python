@@ -44,17 +44,19 @@
   // ---------- Запросы к PocketBase ----------
   let token = storage.get("token", null);
 
+  /** body — объект (отправится как JSON) или FormData (для загрузки картинок). */
   async function request(method, path, { query, body } = {}) {
     const url = new URL(serverUrl() + "/" + path);
     if (query) Object.entries(query).forEach(([k, v]) => v != null && url.searchParams.set(k, v));
-    const headers = { "Content-Type": "application/json" };
+    const isForm = typeof FormData !== "undefined" && body instanceof FormData;
+    const headers = isForm ? {} : { "Content-Type": "application/json" };
     if (token) headers.Authorization = token;
     let response;
     try {
       response = await fetch(url, {
         method,
         headers,
-        body: body ? JSON.stringify(body) : (method === "POST" || method === "PATCH" ? "{}" : undefined),
+        body: isForm ? body : body ? JSON.stringify(body) : (method === "POST" || method === "PATCH" ? "{}" : undefined),
       });
     } catch (_) {
       throw new ApiError("Нет связи с сервером. Проверь интернет и попробуй ещё раз.");
@@ -185,15 +187,6 @@
       p.drafts[taskId] = text;
       storage.set(progressKey(), p);
     },
-    /** Сколько раз ученик нажимал «Проверить» в задании. Учитель видит это в сданной работе. */
-    attempts(taskId) {
-      return this.load().attempts[taskId] || 0;
-    },
-    addAttempt(taskId) {
-      const p = this.load();
-      p.attempts[taskId] = (p.attempts[taskId] || 0) + 1;
-      storage.set(progressKey(), p);
-    },
     reset(taskIds) {
       const p = this.load();
       p.solved = p.solved.filter((id) => !taskIds.includes(id));
@@ -286,8 +279,16 @@
     },
   };
 
+  /** Задания, которые проверяются автоматически (на сервере). */
   function isCheckable(task) {
-    return task.type === "formula" || task.type === "equation";
+    return Chem.isCheckableType(task.type);
+  }
+
+  /** Адрес картинки задания. thumb — уменьшенная копия, например «800x0». */
+  function fileUrl(record, filename, thumb) {
+    if (!record || !filename) return "";
+    const url = `${serverUrl()}/api/files/${record.collectionName || "tasks"}/${record.id}/${encodeURIComponent(filename)}`;
+    return thumb ? `${url}?thumb=${thumb}` : url;
   }
 
   // ---------- Публичный интерфейс ----------
@@ -298,6 +299,16 @@
     progress,
     content,
     isCheckable,
+    fileUrl,
+
+    /**
+     * Проверить ответы на сервере (правильных ответов у ученика нет).
+     * items: [{task, input}] → [{task, kind: correct|hint|wrong|error, message, blanks, attempts}]
+     */
+    async check(items) {
+      const r = await guard(request("POST", "api/check", { body: { items } }));
+      return r.results || [];
+    },
     onChange(fn) { listeners.add(fn); return () => listeners.delete(fn); },
 
     async login(username, password) {
@@ -423,13 +434,30 @@
     },
 
     async saveTask(t) {
+      // Правильный ответ скрыт от учеников, поэтому сервер принимает его в поле answerText.
       const body = {
         practice: t.practice, type: t.type, position: t.position || 0,
-        text: String(t.text).trim(), answer: String(t.answer || "").trim(), hint: String(t.hint || "").trim(),
+        text: String(t.text).trim(), answerText: String(t.answer || "").trim(),
+        options: Array.isArray(t.options) ? t.options : [], multiple: !!t.multiple,
       };
       const saved = await guard(t.id
         ? request("PATCH", `api/collections/tasks/records/${safeId(t.id)}`, { body })
         : request("POST", "api/collections/tasks/records", { body }));
+      state.content.tasks = state.content.tasks.filter((x) => x.id !== saved.id).concat(saved);
+      storage.set("content", state.content);
+      return saved;
+    },
+
+    /** Загрузить или убрать (file = null) картинку задания. */
+    async setTaskImage(id, file) {
+      let saved;
+      if (file) {
+        const form = new FormData();
+        form.append("image", file, file.name || "image.jpg");
+        saved = await guard(request("PATCH", `api/collections/tasks/records/${safeId(id)}`, { body: form }));
+      } else {
+        saved = await guard(request("PATCH", `api/collections/tasks/records/${safeId(id)}`, { body: { image: null } }));
+      }
       state.content.tasks = state.content.tasks.filter((x) => x.id !== saved.id).concat(saved);
       storage.set("content", state.content);
       return saved;
