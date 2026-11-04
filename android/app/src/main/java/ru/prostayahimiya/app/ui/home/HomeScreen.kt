@@ -1,5 +1,6 @@
 package ru.prostayahimiya.app.ui.home
 
+import ru.prostayahimiya.app.data.gradeOf
 import ru.prostayahimiya.app.data.deadlineStatus
 import ru.prostayahimiya.app.data.Practice
 import androidx.compose.foundation.clickable
@@ -80,6 +81,7 @@ fun HomeScreen(
     onOpenAdmin: () -> Unit,
     onOpenChat: () -> Unit,
     onOpenPractice: (String) -> Unit,
+    onOpenReference: () -> Unit,
 ) {
     val user by repository.user.collectAsState()
     val content by repository.content.collectAsState()
@@ -89,8 +91,13 @@ fun HomeScreen(
     // Каждый раз, когда главная открывается, проверяем, нет ли новых сообщений.
     LaunchedEffect(user?.id) { repository.refreshUnreadChats() }
     // Прогресс по сданным работам: одинаковый на сайте и в приложении.
-    val submittedPractices = submissions.map { it.practice }.filter { content.practice(it) != null }.toSet().size
-    val totalPractices = content.practices.size
+    // Считаются только практики, заданные классу ученика: практики других параллелей в прогресс не входят.
+    val myGroup = user?.group.orEmpty()
+    val assigned = content.practices.filter { it.isAssignedTo(myGroup) }
+    val assignedIds = assigned.map { it.id }.toSet()
+    val submittedPractices = submissions.map { it.practice }.filter { it in assignedIds }.toSet().size
+    val totalPractices = assigned.size
+    val myGrade = gradeOf(myGroup)
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var refreshing by remember { mutableStateOf(false) }
@@ -163,10 +170,10 @@ fun HomeScreen(
                     )
                 }
                 if (totalPractices > 0 && user?.isTeacher != true) {
-                    item { ProgressCard(submittedPractices, totalPractices) }
+                    item { ProgressCard(submittedPractices, totalPractices, myGrade) }
                 }
                 // Несданные практики со сроком, ближайшие сверху.
-                val upcoming = if (user?.isTeacher == true) emptyList() else content.practices
+                val upcoming = if (user?.isTeacher == true) emptyList() else assigned
                     .filter { p -> p.deadlineInstant != null && submissions.none { it.practice == p.id } }
                     .sortedBy { it.deadlineInstant }
                     .take(4)
@@ -199,6 +206,15 @@ fun HomeScreen(
                         title = "Теоретическая часть",
                         subtitle = "Учебники ЯКласса по классам",
                         onClick = onOpenTheory,
+                    )
+                }
+                item {
+                    MenuCard(
+                        emoji = "🧪",
+                        badgeColor = MaterialTheme.colorScheme.primaryContainer,
+                        title = "Справочник",
+                        subtitle = "Таблица Менделеева и таблица растворимости",
+                        onClick = onOpenReference,
                     )
                 }
                 item {
@@ -325,11 +341,11 @@ private fun DeadlinesCard(practices: List<Practice>, onOpenPractice: (String) ->
 }
 
 @Composable
-private fun ProgressCard(solved: Int, total: Int) {
+private fun ProgressCard(solved: Int, total: Int, grade: Int) {
     Card(colors = cardColors(), border = cardBorder()) {
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
             Text(
-                if (solved == total) "Все практики сданы! 🎉" else "Твой прогресс",
+                if (solved == total) "Все практики сданы! 🎉" else "Твой прогресс" + if (grade > 0) " · $grade класс" else "",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
             )

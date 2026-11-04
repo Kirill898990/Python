@@ -165,8 +165,13 @@
   function home() {
     const user = Api.state.user;
     // Прогресс по сданным работам: одинаковый на сайте и в приложении, на любом устройстве.
-    const totalPractices = Api.state.content.practices.length;
-    const submitted = new Set(Api.state.mySubmissions.map((s) => s.practice).filter((id) => content.practice(id))).size;
+    // Считаются только практики, заданные классу ученика (практики других параллелей не мешают).
+    const myGroup = user ? user.group : "";
+    const assigned = Api.state.content.practices.filter((p) => Content.isAssigned(p, myGroup));
+    const assignedIds = new Set(assigned.map((p) => p.id));
+    const totalPractices = assigned.length;
+    const submitted = new Set(Api.state.mySubmissions.map((s) => s.practice).filter((id) => assignedIds.has(id))).size;
+    const myGrade = Content.gradeOf(myGroup);
 
     const menuCard = (href, emoji, colorClass, title, subtitle, highlight = false) =>
       h("a", { class: "card card-link" + (highlight ? " card-highlight" : ""), href },
@@ -193,7 +198,7 @@
       user && user.isTeacher && menuCard("#/admin/works", "📋", "c-primary", "Панель учителя", "Проверка работ, оценки и задания", true),
       user && Chat.homeCard(),
       totalPractices > 0 && !(user && user.isTeacher) && h("div", { class: "card" },
-        h("div", { class: "card-title" }, submitted === totalPractices ? "Все практики сданы! 🎉" : "Твой прогресс"),
+        h("div", { class: "card-title" }, submitted === totalPractices ? "Все практики сданы! 🎉" : "Твой прогресс" + (myGrade ? ` · ${myGrade} класс` : "")),
         h("p", { class: "muted small mt" }, `Сдано ${submitted} из ${totalPractices} ${Content.practicesWord(totalPractices)}`),
         h("div", { class: "mt" }, progressBar(submitted / totalPractices))),
       !(user && user.isTeacher) && deadlinesCard(),
@@ -201,6 +206,7 @@
       menuCard("#/subject/biology", "🧬", "c-biology", "Практики по биологии", `${Content.gradeRange("biology")} класс`),
       menuCard("#/subject/chemistry", "⚗️", "c-chemistry", "Практики по химии", `${Content.gradeRange("chemistry")} класс`),
       menuCard("#/theory", "📚", "c-secondary", "Теоретическая часть", "Учебники ЯКласса по классам"),
+      menuCard("#/reference", "🧪", "c-chemistry", "Справочник", "Таблица Менделеева и таблица растворимости"),
       h("img", { class: "banner banner-people", src: "images/scientists.jpg", alt: "" }),
       h("div", { class: "footer" },
         h("div", { class: "card-title" }, Content.AUTHOR),
@@ -213,8 +219,9 @@
 
   /** «Сроки сдачи»: несданные практики со сроком, ближайшие сверху. */
   function deadlinesCard() {
+    const group = Api.state.user ? Api.state.user.group : "";
     const items = Api.state.content.practices
-      .filter((p) => Content.deadlineOf(p) && !Api.lastSubmission(p.id))
+      .filter((p) => Content.isAssigned(p, group) && Content.deadlineOf(p) && !Api.lastSubmission(p.id))
       .sort((a, b) => Content.deadlineOf(a) - Content.deadlineOf(b))
       .slice(0, 4);
     if (!items.length) return null;
@@ -232,6 +239,7 @@
   function subject(params) {
     const key = params.subject === "biology" ? "biology" : "chemistry";
     const showStatus = !(Api.state.user && Api.state.user.isTeacher);
+    const myGrade = showStatus ? Content.gradeOf(Api.state.user && Api.state.user.group) : 0;
     const practices = content.practicesOf(key);
     const colorClass = key === "biology" ? "c-biology" : "c-chemistry";
 
@@ -242,15 +250,15 @@
         h("div", { class: "row" },
           h("div", { class: `grade-circle ${colorClass}` }, String(grade)),
           h("div", { class: "grow" },
-            h("div", { class: "card-title" }, `${grade} класс`),
+            h("div", { class: "row" }, h("span", { class: "card-title" }, `${grade} класс`), grade === myGrade && h("span", { class: "pill pill-solved" }, "Твой класс")),
             list.length === 0 && h("div", { class: "card-sub" }, "Задания скоро появятся"))),
         list.map((p) => {
-          const total = content.tasksOf(p.id).length;
+          const total = content.myTasks(p.id).length;
           const last = showStatus ? Api.lastSubmission(p.id) : null;
           const status = !showStatus || !last
             ? `${total} ${Content.tasksWord(total)}` + (showStatus ? " · не сдано" : "")
             : last.grade > 0 ? `Сдано · оценка ${last.grade}` : "Сдано · на проверке";
-          const due = showStatus ? Content.deadlineStatus(p, !!last) : null;
+          const due = showStatus && Content.isAssigned(p, Api.state.user.group) ? Content.deadlineStatus(p, !!last) : null;
           const forClasses = !showStatus && Array.isArray(p.classes) && p.classes.length ? "Для " + p.classes.join(", ") : null;
           const teacherDue = !showStatus && Content.deadlineOf(p) ? "до " + Content.formatDay(Content.deadlineOf(p)) : null;
           return [
@@ -264,6 +272,7 @@
               icon("chevron")),
           ];
         }),
+        noteBlock(key, grade),
         theory && h("a", { class: "btn btn-text mt", href: theory, target: "_blank", rel: "noopener noreferrer" },
           h("span", null, "Теория в ЯКлассе"), icon("open", 16)));
     };
@@ -271,6 +280,35 @@
     return h("div", { class: "screen" },
       topBar(key === "biology" ? "Практики по биологии" : "Практики по химии", () => App.back("")),
       Content.grades(key).map(gradeCard));
+  }
+
+  /** Заметка учителя к теории для класса. Учитель может её написать, изменить или убрать. */
+  function noteBlock(subjectKey, grade) {
+    const isTeacher = Api.state.user && Api.state.user.isTeacher;
+    const note = content.noteFor(subjectKey, grade);
+    if (!note && !isTeacher) return null;
+    const edit = () => UI.dialog((close) => {
+      let text = note ? note.text : "";
+      const f = field({ label: "Заметка для учеников", multiline: true, rows: 6, value: text, oninput: (v) => { text = v; },
+        supporting: "Например: что повторить к контрольной, какие параграфы прочитать. Пустая заметка удалится." });
+      const save = button("Сохранить", async () => {
+        save.disabled = true;
+        try {
+          await Api.saveNote(subjectKey, grade, text);
+          close();
+          UI.toast(text.trim() ? "Заметка сохранена" : "Заметка удалена");
+          App.render();
+        } catch (e) {
+          f.setError(e.message);
+          save.disabled = false;
+        }
+      }, { kind: "text" });
+      return { title: `Заметка к теории · ${grade} класс`, body: [f], actions: [button("Отмена", close, { kind: "text" }), save] };
+    }, { wide: true });
+    return [
+      note && h("div", { class: "note-card" }, h("div", { class: "small bold" }, "📝 Заметка учителя"), h("div", { class: "mt" }, note.text)),
+      isTeacher && button(note ? "Изменить заметку" : "Добавить заметку к теории", edit, { kind: "text" }),
+    ];
   }
 
   // ======================= Теория =======================
@@ -361,6 +399,9 @@
     return img;
   }
 
+  /** Какой вариант учитель смотрит в каждой практике. */
+  const teacherVariant = new Map();
+
   function practice(params) {
     const p = content.practice(params.id);
     if (!p) {
@@ -368,7 +409,12 @@
     }
     const user = Api.state.user;
     const store = Api.progress;
-    const all = content.tasksOf(p.id).filter((t) => t.type !== "equation" || Chem.parseEquation(t.text));
+    // Варианты: ученику — его вариант, учителю — тот, который он выбрал для просмотра.
+    const variantCount = content.variantCount(p.id);
+    const isTeacherView = !!(user && user.isTeacher);
+    const variant = !variantCount ? 0
+      : isTeacherView ? Math.min(teacherVariant.get(p.id) || 1, variantCount) : content.variantFor(p.id, user.id);
+    const all = content.tasksForVariant(p.id, variant).filter((t) => t.type !== "equation" || Chem.parseEquation(t.text));
     const byType = (type) => all.filter((t) => t.type === type);
     const sections = SECTIONS.filter((s) => byType(s.type).length);
     const checkable = all.filter(Api.isCheckable);
@@ -649,7 +695,7 @@
         replace(sendBtn, h("span", { class: "spinner spinner-sm" }), h("span", null, "Отправляем…"));
         try {
           // Сколько верно, сервер посчитает сам.
-          last = await Api.submit(p, items, 0, checkable.length);
+          last = await Api.submit(p, items, 0, checkable.length, variant);
           replace(resultBox,
             feedback("Готово! Работа отправлена учителю.", "success"),
             h("a", { class: "btn btn-text mt", href: "#/cabinet" }, "Открыть личный кабинет"));
@@ -675,8 +721,14 @@
 
     const screen = h("div", { class: "screen" },
       topBar(`${Content.subjectOf(p.subject).title} · ${p.grade} класс`, () => App.back(`subject/${p.subject}`),
+        h("button", { class: "icon-btn", type: "button", "aria-label": "Справочник", title: "Таблица Менделеева и растворимости", onclick: () => App.go("reference") }, icon("book")),
         menuButton([{ label: "Начать заново", onclick: reset }])),
       h("h2", { class: "home-title" }, p.title),
+      variantCount > 0 && (isTeacherView
+        ? h("div", { class: "row-wrap" },
+          h("span", { class: "small muted" }, "Вариант:"),
+          Array.from({ length: variantCount }, (_, i) => UI.chip(`Вариант ${i + 1}`, variant === i + 1, () => { teacherVariant.set(p.id, i + 1); App.render(); })))
+        : h("div", null, h("span", { class: "pill variant-pill" }, `Вариант ${variant}`))),
       (() => {
         const d = Content.deadlineOf(p);
         if (!d) return null;
@@ -761,7 +813,7 @@
       return [
         h("div", null,
           isTeacher && st && h("h2", { class: "home-title" }, st.group ? `${st.name}, ${st.group}` : st.name),
-          h("div", { class: "card-title" }, s.practiceTitle),
+          h("div", { class: "card-title" }, s.practiceTitle + (s.variant ? ` · вариант ${s.variant}` : "")),
           h("p", { class: "small muted" }, "Сдано " + Content.formatDate(s.created) + (s.total > 0 ? ` · автопроверка: верно ${s.solved} из ${s.total}` : ""),
             Content.isLate(s, content.practice(s.practice)) && h("span", { class: "err bold" }, " · с опозданием"))),
         isTeacher ? Teacher.gradeEditor(s) : gradeView(s),

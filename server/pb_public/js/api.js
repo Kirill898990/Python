@@ -120,10 +120,11 @@
    * Учитель видит всё.
    */
   function forUser(data, user) {
-    if (!user || user.isTeacher) return data;
+    const notes = data.notes || [];
+    if (!user || user.isTeacher) return { practices: data.practices, tasks: data.tasks, notes };
     const practices = data.practices.filter((p) => !Array.isArray(p.classes) || !p.classes.length || p.classes.includes(user.group));
     const ids = new Set(practices.map((p) => p.id));
-    return { practices, tasks: data.tasks.filter((t) => ids.has(t.practice)) };
+    return { practices, tasks: data.tasks.filter((t) => ids.has(t.practice)), notes };
   }
 
   const state = {
@@ -285,6 +286,34 @@
         .filter((t) => t.practice === practiceId)
         .sort((a, b) => (a.position - b.position) || a.id.localeCompare(b.id));
     },
+    /** Сколько вариантов в практике (0 — вариантов нет, все решают одно и то же). */
+    variantCount(practiceId) {
+      return Math.max(0, ...this.tasksOf(practiceId).map((t) => t.variant || 0));
+    },
+    /**
+     * Вариант ученика в практике. Выбирается сам по аккаунту, поэтому у соседей по парте он разный,
+     * а у одного ученика — всегда один и тот же (и на сайте, и в приложении).
+     */
+    variantFor(practiceId, userId) {
+      const count = this.variantCount(practiceId);
+      if (!count) return 0;
+      let hash = 0;
+      for (const ch of `${userId}:${practiceId}`) hash = (hash * 31 + ch.charCodeAt(0)) % 2147483647;
+      return (hash % count) + 1;
+    },
+    /** Задания, которые видит ученик: общие и своего варианта. */
+    tasksForVariant(practiceId, variant) {
+      return this.tasksOf(practiceId).filter((t) => !t.variant || t.variant === variant);
+    },
+    /** Задания практики для текущего пользователя (учитель видит первый вариант). */
+    myTasks(practiceId) {
+      const u = state.user;
+      const variant = u && !u.isTeacher ? this.variantFor(practiceId, u.id) : Math.min(1, this.variantCount(practiceId));
+      return this.tasksForVariant(practiceId, variant);
+    },
+    noteFor(subject, grade) {
+      return (state.content.notes || []).find((n) => n.subject === subject && n.grade === grade) || null;
+    },
     practicesOf(subject) {
       return state.content.practices
         .filter((p) => p.subject === subject)
@@ -370,11 +399,12 @@
 
     async refreshContent() {
       try {
-        const [practices, tasks] = await guard(Promise.all([
+        const [practices, tasks, notes] = await guard(Promise.all([
           listAll("practices", { sort: "grade,position,title" }),
           listAll("tasks", { sort: "position" }),
+          listAll("notes", { sort: "subject,grade" }).catch(() => []),
         ]));
-        state.content = forUser({ practices, tasks }, state.user);
+        state.content = forUser({ practices, tasks, notes }, state.user);
         state.contentError = null;
         storage.set("content", state.content);
         emit("content");
@@ -386,9 +416,10 @@
       }
     },
 
-    async submit(practice, answers, solved, total) {
+    async submit(practice, answers, solved, total, variant) {
       const saved = await guard(request("POST", "api/collections/submissions/records", {
         body: {
+          variant: variant || 0,
           student: state.user.id,
           practice: practice.id,
           practiceTitle: fullTitle(practice),
@@ -465,6 +496,7 @@
         practice: t.practice, type: t.type, position: t.position || 0,
         text: String(t.text).trim(), answerText: String(t.answer || "").trim(),
         options: Array.isArray(t.options) ? t.options : [], multiple: !!t.multiple,
+        variant: t.variant || 0,
       };
       const saved = await guard(t.id
         ? request("PATCH", `api/collections/tasks/records/${safeId(t.id)}`, { body })
@@ -487,6 +519,23 @@
       state.content.tasks = state.content.tasks.filter((x) => x.id !== saved.id).concat(saved);
       storage.set("content", state.content);
       return saved;
+    },
+
+    /** Сохранить заметку учителя к теории (пустой текст — удалить заметку). */
+    async saveNote(subject, grade, text) {
+      const existing = content.noteFor(subject, grade);
+      const clean = String(text || "").trim();
+      const notes = (state.content.notes || []).filter((n) => !(n.subject === subject && n.grade === grade));
+      if (!clean) {
+        if (existing) await guard(request("DELETE", `api/collections/notes/records/${safeId(existing.id)}`));
+      } else {
+        const saved = await guard(existing
+          ? request("PATCH", `api/collections/notes/records/${safeId(existing.id)}`, { body: { text: clean } })
+          : request("POST", "api/collections/notes/records", { body: { subject, grade, text: clean } }));
+        notes.push(saved);
+      }
+      state.content.notes = notes;
+      storage.set("content", state.content);
     },
 
     async deleteTask(id) {
@@ -651,6 +700,24 @@
     return n % 10 === 1 && n % 100 !== 11 ? "практики" : "практик";
   }
 
+  /** «9А» → 9; если класс записан без цифры — 0 (неизвестно). */
+  function gradeOf(group) {
+    const n = parseInt(String(group || ""), 10);
+    return n >= 1 && n <= 11 ? n : 0;
+  }
+
+  /**
+   * Задана ли практика этому классу (для прогресса, сроков и журнала).
+   * Если учитель выбрал классы — только им. Если практика «для всех классов» — ученикам своей параллели:
+   * биология 5 класса засчитывается 5А и 5Б, но не девятиклассникам.
+   */
+  function isAssigned(practice, group) {
+    const classes = Array.isArray(practice.classes) ? practice.classes : [];
+    if (classes.length) return classes.includes(group);
+    const grade = gradeOf(group);
+    return !grade || practice.grade === grade;
+  }
+
   /** Срок сдачи: Date или null. */
   function deadlineOf(practice) {
     if (!practice || !practice.deadline) return null;
@@ -723,6 +790,8 @@
     formatDate,
     tasksWord,
     practicesWord,
+    gradeOf,
+    isAssigned,
     deadlineOf,
     deadlineStatus,
     formatDay,

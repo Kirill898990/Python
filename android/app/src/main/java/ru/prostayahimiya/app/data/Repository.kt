@@ -135,7 +135,8 @@ class Repository(private val context: Context) {
     suspend fun refreshContent(): Boolean = guard {
         val practices = api.listAll("practices", Practice.serializer(), sort = "grade,position,title")
         val tasks = api.listAll("tasks", Task.serializer(), sort = "position")
-        val data = ContentData(practices, tasks)
+        val notes = runCatching { api.listAll("notes", Note.serializer(), sort = "subject,grade") }.getOrDefault(emptyList())
+        val data = ContentData(practices, tasks, notes)
         _content.value = forUser(data, _user.value)
         _contentError.value = null
         cacheFile.writeText(api.json.encodeToString(ContentData.serializer(), data))
@@ -237,7 +238,7 @@ class Repository(private val context: Context) {
         runCatching { mySubmissions() }.onSuccess { _mySubmissions.value = it }
     }
 
-    suspend fun submit(practice: Practice, answers: List<AnswerItem>, solved: Int, total: Int): Submission = guard {
+    suspend fun submit(practice: Practice, answers: List<AnswerItem>, solved: Int, total: Int, variant: Int = 0): Submission = guard {
         val student = _user.value ?: throw ApiException("Нужно войти в аккаунт", 401)
         val saved = api.call(
             "POST",
@@ -250,6 +251,7 @@ class Repository(private val context: Context) {
                 put("answers", api.json.encodeToJsonElement(ListSerializer(AnswerItem.serializer()), answers))
                 put("solved", solved)
                 put("total", total)
+                put("variant", variant)
             },
         )
         _mySubmissions.value = listOf(saved) + _mySubmissions.value
@@ -331,6 +333,7 @@ class Repository(private val context: Context) {
             put("answerText", task.answer.trim())
             put("options", buildJsonArray { task.options.forEach { add(it.trim()) } })
             put("multiple", task.multiple)
+            put("variant", task.variant)
         }
         val saved = save("tasks", task.id, body, Task.serializer())
         _content.value = _content.value.copy(tasks = _content.value.tasks.filter { it.id != saved.id } + saved)
@@ -355,6 +358,38 @@ class Repository(private val context: Context) {
                 put("passwordConfirm", newPassword)
             },
         )
+    }.getOrThrow()
+
+    // ---------- Заметки учителя к теории ----------
+
+    /** Сохранить заметку (пустой текст — удалить её). */
+    suspend fun saveNote(subject: Subject, grade: Int, text: String) = guard {
+        val existing = _content.value.noteFor(subject, grade)
+        val clean = text.trim()
+        val others = _content.value.notes.filter { !(it.subject == subject.key && it.grade == grade) }
+        val notes = when {
+            clean.isEmpty() -> {
+                if (existing != null) api.send("DELETE", api.url("api/collections/notes/records/${safeId(existing.id)}"))
+                others
+            }
+            existing != null -> others + api.call(
+                "PATCH",
+                api.url("api/collections/notes/records/${safeId(existing.id)}"),
+                Note.serializer(),
+                buildJsonObject { put("text", clean) },
+            )
+            else -> others + api.call(
+                "POST",
+                api.url("api/collections/notes/records"),
+                Note.serializer(),
+                buildJsonObject {
+                    put("subject", subject.key)
+                    put("grade", grade)
+                    put("text", clean)
+                },
+            )
+        }
+        _content.value = _content.value.copy(notes = notes)
     }.getOrThrow()
 
     // ---------- Коды классов и журнал ----------
@@ -565,7 +600,7 @@ class Repository(private val context: Context) {
         if (user == null || user.isTeacher) return data
         val practices = data.practices.filter { it.isFor(user.group) }
         val ids = practices.map { it.id }.toSet()
-        return ContentData(practices, data.tasks.filter { it.practice in ids })
+        return ContentData(practices, data.tasks.filter { it.practice in ids }, data.notes)
     }
 
     private fun loadCache(): ContentData = runCatching {

@@ -49,6 +49,17 @@ data class Practice(
     /** Видна ли практика ученику этого класса. */
     fun isFor(group: String): Boolean = classes.isEmpty() || group in classes
 
+    /**
+     * Задана ли практика этому классу (для прогресса, сроков и журнала).
+     * Если учитель выбрал классы — только им. Если практика «для всех классов» — ученикам своей параллели:
+     * биология 5 класса засчитывается 5А и 5Б, но не девятиклассникам. Так же считает сайт.
+     */
+    fun isAssignedTo(group: String): Boolean {
+        if (classes.isNotEmpty()) return group in classes
+        val g = gradeOf(group)
+        return g == 0 || grade == g
+    }
+
     /** «Химия, 8 класс · Практика по химии» — так работа подписывается в кабинете. */
     val fullTitle: String get() = "${subjectEnum.title}, $grade класс · $title"
 }
@@ -88,6 +99,8 @@ data class Task(
     val multiple: Boolean = false,
     /** Имя файла картинки к заданию или пусто. */
     val image: String = "",
+    /** 0 — задание для всех; 1–4 — только для этого варианта. */
+    val variant: Int = 0,
 ) {
     val taskType: TaskType get() = TaskType.fromKey(type)
 
@@ -152,6 +165,8 @@ data class Submission(
     val gradedAt: String = "",
     val created: String = "",
     val expand: SubmissionExpand? = null,
+    /** Какой вариант решал ученик (0 — вариантов не было). */
+    val variant: Int = 0,
 ) {
     val isGraded: Boolean get() = grade > 0
     val studentUser: User? get() = expand?.student
@@ -165,8 +180,36 @@ data class SubmissionExpand(val student: User? = null)
 data class ContentData(
     val practices: List<Practice> = emptyList(),
     val tasks: List<Task> = emptyList(),
+    val notes: List<Note> = emptyList(),
 ) {
     fun practice(id: String): Practice? = practices.firstOrNull { it.id == id }
+
+    fun noteFor(subject: Subject, grade: Int): Note? = notes.firstOrNull { it.subject == subject.key && it.grade == grade }
+
+    /** Сколько вариантов в практике (0 — вариантов нет, все решают одно и то же). */
+    fun variantCount(practiceId: String): Int = tasksOf(practiceId).maxOfOrNull { it.variant }?.coerceAtLeast(0) ?: 0
+
+    /**
+     * Вариант ученика в практике. Выбирается сам по аккаунту (так же, как на сайте), поэтому у соседей по парте
+     * он разный, а у одного ученика — всегда один и тот же.
+     */
+    fun variantFor(practiceId: String, userId: String): Int {
+        val count = variantCount(practiceId)
+        if (count == 0) return 0
+        var hash = 0L
+        for (ch in "$userId:$practiceId") hash = (hash * 31 + ch.code) % 2147483647L
+        return (hash % count).toInt() + 1
+    }
+
+    /** Задания, которые видит ученик этого варианта: общие и своего варианта. */
+    fun tasksForVariant(practiceId: String, variant: Int): List<Task> =
+        tasksOf(practiceId).filter { it.variant == 0 || it.variant == variant }
+
+    /** Задания практики для пользователя (учитель по умолчанию видит первый вариант). */
+    fun tasksFor(practiceId: String, user: User?): List<Task> {
+        val variant = if (user != null && !user.isTeacher) variantFor(practiceId, user.id) else minOf(1, variantCount(practiceId))
+        return tasksForVariant(practiceId, variant)
+    }
 
     fun tasksOf(practiceId: String): List<Task> =
         tasks.filter { it.practice == practiceId }.sortedWith(compareBy({ it.position }, { it.id }))
@@ -176,6 +219,18 @@ data class ContentData(
 
     val checkableTaskIds: List<String> get() = tasks.filter { it.isCheckable }.map { it.id }
 }
+
+/** Заметка учителя к теории для класса по предмету. */
+@Serializable
+data class Note(
+    val id: String = "",
+    val subject: String = "",
+    val grade: Int = 0,
+    val text: String = "",
+)
+
+/** «9А» → 9; если класс записан без цифры — 0 (неизвестно). */
+fun gradeOf(group: String): Int = group.takeWhile { it.isDigit() }.toIntOrNull()?.takeIf { it in 1..11 } ?: 0
 
 /** Код, по которому ученики регистрируются в свой класс. */
 @Serializable

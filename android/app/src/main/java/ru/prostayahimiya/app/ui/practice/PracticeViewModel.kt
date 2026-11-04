@@ -38,7 +38,13 @@ sealed interface SendState {
  * пропуски — слова через «|», молярная масса — число.
  * Правильные ответы на телефон не приходят: «Проверить» спрашивает сервер.
  */
-class PracticeViewModel(private val repository: Repository, val practice: Practice, tasks: List<Task>) : ViewModel() {
+class PracticeViewModel(
+    private val repository: Repository,
+    val practice: Practice,
+    tasks: List<Task>,
+    /** Вариант ученика (0 — вариантов нет). Сохраняется вместе с работой. */
+    val variant: Int = 0,
+) : ViewModel() {
 
     private val store = repository.progress
 
@@ -149,7 +155,7 @@ class PracticeViewModel(private val repository: Repository, val practice: Practi
         sendState = SendState.Sending
         viewModelScope.launch {
             sendState = try {
-                lastSubmission = repository.submit(practice, items, 0, checkable.size)
+                lastSubmission = repository.submit(practice, items, 0, checkable.size, variant)
                 SendState.Sent
             } catch (e: CancellationException) {
                 throw e
@@ -219,8 +225,8 @@ class PracticeViewModel(private val repository: Repository, val practice: Practi
 
         private fun isFilled(value: String) = value.replace("|", "").replace(",", "").isNotBlank()
 
-        fun factory(repository: Repository, practice: Practice, tasks: List<Task>) = viewModelFactory {
-            initializer { PracticeViewModel(repository, practice, tasks) }
+        fun factory(repository: Repository, practice: Practice, tasks: List<Task>, variant: Int) = viewModelFactory {
+            initializer { PracticeViewModel(repository, practice, tasks, variant) }
         }
     }
 }

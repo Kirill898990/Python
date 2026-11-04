@@ -437,7 +437,7 @@ private fun TaskRow(
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(start = 16.dp, top = 8.dp, bottom = 8.dp)) {
             Column(Modifier.weight(1f)) {
                 Text(
-                    "$number. ${task.taskType.emoji()} ${task.taskType.shortTitle()}",
+                    "$number. ${task.taskType.emoji()} ${task.taskType.shortTitle()}" + if (task.variant > 0) " · вариант ${task.variant}" else "",
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -484,6 +484,7 @@ private fun TaskEditorDialog(task: Task, repository: Repository, onDismiss: () -
     val options = remember(task.id) { mutableStateListOf(*(task.options.ifEmpty { listOf("", "") }).toTypedArray()) }
     val correct = remember(task.id) { mutableStateListOf(*parseChoice(task.answer).toTypedArray()) }
     var image by remember(task.id) { mutableStateOf<ImageChange>(ImageChange.Keep) }
+    var variant by rememberSaveable(task.id) { mutableIntStateOf(task.variant) }
     val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) image = ImageChange.Set(uri)
     }
@@ -642,6 +643,18 @@ private fun TaskEditorDialog(task: Task, repository: Repository, onDismiss: () -
                     if (hasImage) TextButton(onClick = { image = ImageChange.Remove }) { Text("Убрать") }
                 }
 
+                Text("Кому это задание", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 4.dp))
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    (0..4).forEach { v ->
+                        FilterChip(selected = variant == v, onClick = { variant = v }, label = { Text(if (v == 0) "Для всех" else "Вариант $v") })
+                    }
+                }
+                Text(
+                    "Можно сделать до 4 вариантов: каждый ученик получит свой вариант сам, а задания «для всех» решают все.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
                 if (error != null && touched) {
                     Text("⚠️ $error", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
                 }
@@ -657,6 +670,7 @@ private fun TaskEditorDialog(task: Task, repository: Repository, onDismiss: () -
                         options = savedOptions,
                         multiple = type == TaskType.CHOICE && correct.size > 1,
                         hint = "",
+                        variant = variant,
                     ).normalized()
                     onSave(updated, image)
                 },

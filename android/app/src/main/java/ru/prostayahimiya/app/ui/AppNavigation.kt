@@ -1,5 +1,6 @@
 package ru.prostayahimiya.app.ui
 
+import android.net.Uri
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -9,7 +10,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import android.net.Uri
 import androidx.lifecycle.compose.dropUnlessResumed
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -31,6 +31,7 @@ import ru.prostayahimiya.app.ui.components.BackTopBar
 import ru.prostayahimiya.app.ui.components.EmptyBox
 import ru.prostayahimiya.app.ui.home.HomeScreen
 import ru.prostayahimiya.app.ui.practice.PracticeScreen
+import ru.prostayahimiya.app.ui.reference.ReferenceScreen
 import ru.prostayahimiya.app.ui.subject.SubjectScreen
 import ru.prostayahimiya.app.ui.theory.TheoryScreen
 
@@ -63,6 +64,7 @@ fun AppNavigation(repository: Repository) {
                 onOpenAdmin = { nav.navigate("admin") },
                 onOpenChat = { nav.navigate("chats") },
                 onOpenPractice = { id -> nav.navigate("practice/$id") },
+                onOpenReference = { nav.navigate("reference") },
             )
         }
         composable("chats") {
@@ -100,7 +102,11 @@ fun AppNavigation(repository: Repository) {
                 repository = repository,
                 onBack = dropUnlessResumed { nav.popBackStack() },
                 onOpenCabinet = { nav.navigateSingle("cabinet") },
+                onOpenReference = { nav.navigate("reference") },
             )
+        }
+        composable("reference") {
+            ReferenceScreen(onBack = dropUnlessResumed { nav.popBackStack() })
         }
         composable("theory") {
             TheoryScreen(onBack = dropUnlessResumed { nav.popBackStack() })

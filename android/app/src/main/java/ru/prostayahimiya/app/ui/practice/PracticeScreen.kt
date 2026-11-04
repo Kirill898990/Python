@@ -5,6 +5,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -27,6 +28,7 @@ import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -42,6 +44,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -57,6 +60,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -95,8 +99,8 @@ import ru.prostayahimiya.app.ui.components.BackTopBar
 import ru.prostayahimiya.app.ui.components.EmptyBox
 import ru.prostayahimiya.app.ui.components.GradeBadge
 import ru.prostayahimiya.app.ui.components.PASTE_LIMIT_FORMULA
-import ru.prostayahimiya.app.ui.components.PASTE_LIMIT_WORD
 import ru.prostayahimiya.app.ui.components.PASTE_LIMIT_TEXT
+import ru.prostayahimiya.app.ui.components.PASTE_LIMIT_WORD
 import ru.prostayahimiya.app.ui.components.ProtectedFromCopy
 import ru.prostayahimiya.app.ui.components.looksLikePaste
 import ru.prostayahimiya.app.ui.components.showPasteBlocked
@@ -123,7 +127,13 @@ private fun TaskType.sectionCaption() = when (this) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PracticeScreen(practiceId: String, repository: Repository, onBack: () -> Unit, onOpenCabinet: () -> Unit) {
+fun PracticeScreen(
+    practiceId: String,
+    repository: Repository,
+    onBack: () -> Unit,
+    onOpenCabinet: () -> Unit,
+    onOpenReference: () -> Unit,
+) {
     val content by repository.content.collectAsState()
     val user by repository.user.collectAsState()
     val practice = content.practice(practiceId)
@@ -133,9 +143,19 @@ fun PracticeScreen(practiceId: String, repository: Repository, onBack: () -> Uni
         }
         return
     }
+    // Варианты: ученику — его вариант, учителю — тот, который он выбрал для просмотра.
+    val variantCount = content.variantCount(practice.id)
+    var teacherVariant by rememberSaveable(practice.id) { mutableIntStateOf(1) }
+    val currentUser = user
+    val variant = when {
+        variantCount == 0 -> 0
+        currentUser == null || currentUser.isTeacher -> teacherVariant.coerceIn(1, variantCount)
+        else -> content.variantFor(practice.id, currentUser.id)
+    }
+    val tasks = content.tasksForVariant(practice.id, variant)
     val vm: PracticeViewModel = viewModel(
-        key = "practice-${practice.id}-${content.tasksOf(practice.id).hashCode()}",
-        factory = PracticeViewModel.factory(repository, practice, content.tasksOf(practice.id)),
+        key = "practice-${practice.id}-$variant-${tasks.hashCode()}",
+        factory = PracticeViewModel.factory(repository, practice, tasks, variant),
     )
     val solved by repository.progress.solved.collectAsState()
     // Ученику нельзя копировать задания и вставлять текст в ответы. У учителя ограничений нет.
@@ -152,6 +172,9 @@ fun PracticeScreen(practiceId: String, repository: Repository, onBack: () -> Uni
                     onBack = onBack,
                     scrollBehavior = scrollBehavior,
                 ) {
+                    IconButton(onClick = onOpenReference) {
+                        Icon(painterResource(R.drawable.ic_book), contentDescription = "Справочник")
+                    }
                     IconButton(onClick = { menuOpen = true }) {
                         Icon(painterResource(R.drawable.ic_more_vert), contentDescription = "Ещё")
                     }
@@ -181,6 +204,27 @@ fun PracticeScreen(practiceId: String, repository: Repository, onBack: () -> Uni
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 item { ProgressHeader(practice.title, vm.filledCount, vm.totalCount) }
+                if (variantCount > 0) {
+                    item {
+                        if (currentUser?.isTeacher == true) {
+                            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text("Вариант:", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                (1..variantCount).forEach { v ->
+                                    FilterChip(selected = variant == v, onClick = { teacherVariant = v }, label = { Text("Вариант $v") })
+                                }
+                            }
+                        } else {
+                            Surface(shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.secondaryContainer) {
+                                Text(
+                                    "Вариант $variant",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                                )
+                            }
+                        }
+                    }
+                }
                 practice.deadlineInstant?.let { deadline ->
                     item {
                         val overdue = deadline.isBefore(java.time.Instant.now())

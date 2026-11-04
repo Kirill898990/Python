@@ -45,7 +45,7 @@ fun classesOf(students: List<User>): List<String> =
 
 /** Практики, которые задавали классу (черновики не считаем). */
 fun practicesFor(group: String, practices: List<Practice>): List<Practice> =
-    practices.filter { it.published && it.isFor(group) }
+    practices.filter { it.published && it.isAssignedTo(group) }
         .sortedWith(compareBy({ it.subject }, { it.grade }, { it.position }, { it.title }))
 
 /** submissions — новые сверху (так их отдаёт сервер). */
