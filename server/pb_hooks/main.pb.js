@@ -184,6 +184,22 @@ onRecordCreateRequest((e) => {
   e.next()
 }, "users")
 
+// Приложение 1.1 и старая версия сайта в кэше браузера не присылают владельца и учителя.
+// Подставляем их сами: учителю — он сам, ученику — его учитель. Правила доступа проверяют уже заполненные поля.
+function fillOwner(e) {
+  const auth = e.auth
+  if (auth && auth.getBool("isTeacher") && !e.record.getString("owner")) e.record.set("owner", auth.id)
+  e.next()
+}
+onRecordCreateRequest(fillOwner, "practices", "notes", "class_codes")
+onRecordCreateRequest((e) => {
+  const auth = e.auth
+  if (auth && !e.record.getString("teacher")) {
+    e.record.set("teacher", auth.getBool("isTeacher") ? auth.id : auth.getString("teacher"))
+  }
+  e.next()
+}, "messages")
+
 // Первый подтверждённый учитель забирает себе практики без владельца (стартовую практику новой установки).
 onRecordAfterUpdateSuccess((e) => {
   if (e.record.getBool("isTeacher")) {
