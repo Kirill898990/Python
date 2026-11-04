@@ -40,8 +40,8 @@ object Content {
 
     /** Классы, которые всегда показываются в разделе предмета, даже если практик пока нет. */
     private val baseGrades = mapOf(
-        Subject.CHEMISTRY to listOf(8, 9, 10),
-        Subject.BIOLOGY to listOf(5, 6, 7, 8, 9),
+        Subject.CHEMISTRY to listOf(8, 9, 10, 11),
+        Subject.BIOLOGY to listOf(5, 6, 7, 8, 9, 10, 11),
     )
 
     fun theoryUrl(subject: Subject, grade: Int): String? =
@@ -51,7 +51,7 @@ object Content {
     fun grades(subject: Subject, content: ContentData): List<Int> =
         (baseGrades.getValue(subject) + content.practicesOf(subject).map { it.grade }).distinct().sortedDescending()
 
-    /** «8–10» для подписи на карточке предмета. */
+    /** «8–11» для подписи на карточке предмета. */
     fun gradeRange(subject: Subject, content: ContentData): String = range(grades(subject, content))
 
     fun allGradesRange(content: ContentData): String =

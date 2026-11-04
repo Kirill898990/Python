@@ -72,6 +72,10 @@ cp "$SRC"/pb_migrations/*.js "$DIR/pb_migrations/"
 rm -rf "$DIR/pb_public"
 cp -r "$SRC/pb_public" "$DIR/pb_public"
 
+# Первая установка или обновление? Базу при обновлении не трогаем.
+FRESH_INSTALL=0
+[ -d "$DIR/pb_data" ] || FRESH_INSTALL=1
+
 say "Применяю структуру базы"
 "$DIR/pocketbase" migrate up --dir "$DIR/pb_data" --migrationsDir "$DIR/pb_migrations" >/dev/null
 
@@ -121,7 +125,7 @@ say "Готово! Сервер работает и будет запускат�
 echo "  Сайт:                  https://$DOMAIN_INPUT/"
 echo "  Панель администратора: https://$DOMAIN_INPUT/_/"
 echo "  Журнал сервера:        journalctl -u pocketbase -f"
-if [ -z "$ADMIN_EMAIL" ]; then
+if [ -z "$ADMIN_EMAIL" ] && [ "$FRESH_INSTALL" = 1 ]; then
   echo
   echo "  Администратора создайте командой:"
   echo "  $DIR/pocketbase superuser upsert ПОЧТА ПАРОЛЬ --dir $DIR/pb_data"
