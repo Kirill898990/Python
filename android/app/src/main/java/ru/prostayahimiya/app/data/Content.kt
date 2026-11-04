@@ -25,6 +25,9 @@ object Content {
 
     const val AUTHOR = "Простая химия с Ириной"
 
+    /** Политика конфиденциальности на сайте (https://урокискириллом.рф/privacy.html). */
+    const val PRIVACY_URL = "https://xn--h1aaafbiaikhnfkx.xn--p1ai/privacy.html"
+
     val theory: List<TheoryLink> = listOf(
         TheoryLink(Subject.CHEMISTRY, 9, "https://www.yaklass.ru/p/himija/9-klass"),
         TheoryLink(Subject.CHEMISTRY, 8, "https://www.yaklass.ru/p/himija/8-klass?YklShowAll=1"),
