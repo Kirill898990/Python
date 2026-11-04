@@ -18,7 +18,7 @@
     { pattern: /^chats$/, screen: () => Chat.list(), name: "chats" },
     { pattern: /^chat\/(class|private)\/([^/]{1,40})$/, screen: (m) => Chat.room({ kind: m[1], key: m[2] }), name: "chat" },
     { pattern: /^admin\/practice\/([a-z0-9]+)$/, screen: (m) => Teacher.editor({ id: m[1] }), name: "editor", teacher: true },
-    { pattern: /^admin(?:\/(works|tasks|students))?$/, screen: (m) => Teacher.admin({ tab: m[1] }), name: "admin", teacher: true },
+    { pattern: /^admin(?:\/(works|journal|tasks|students))?$/, screen: (m) => Teacher.admin({ tab: m[1] }), name: "admin", teacher: true },
   ];
 
   let current = null;

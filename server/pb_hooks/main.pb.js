@@ -133,3 +133,36 @@ routerUse((e) => {
   }
   return e.next()
 })
+
+// ---------- Коды классов при регистрации ----------
+
+// Нужен ли код класса для регистрации (сайт и приложение спрашивают это до входа).
+routerAdd("GET", "/api/registration-info", (e) => {
+  const count = e.app.countRecords("class_codes", $dbx.hashExp({ active: true }))
+  return e.json(200, { codeRequired: count > 0 })
+})
+
+// Если учитель создал хотя бы один код, ученик регистрируется только по коду, и класс берётся из кода.
+onRecordCreateRequest((e) => {
+  if (e.hasSuperuserAuth()) return e.next()
+  const count = e.app.countRecords("class_codes", $dbx.hashExp({ active: true }))
+  if (count > 0) {
+    const body = e.requestInfo().body || {}
+    const code = String(body.classCode || "").trim().toUpperCase().replace(/\s+/g, "")
+    if (!code) {
+      throw new BadRequestError("Впиши код класса", {
+        classCode: new ValidationError("class_code_required", "Впиши код класса, который дал учитель"),
+      })
+    }
+    let record
+    try {
+      record = e.app.findFirstRecordByFilter("class_codes", "code = {:code} && active = true", { code })
+    } catch (_) {
+      throw new BadRequestError("Неверный код класса", {
+        classCode: new ValidationError("class_code_invalid", "Неверный код класса. Проверь его у учителя"),
+      })
+    }
+    e.record.set("group", record.getString("group"))
+  }
+  e.next()
+}, "users")

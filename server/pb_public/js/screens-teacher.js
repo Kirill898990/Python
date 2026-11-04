@@ -4,7 +4,7 @@
  */
 (function () {
   "use strict";
-  const { h, replace, icon, topBar, sectionLabel, button, field, segmented, chip, emptyBox, dialog, confirm, toast } = UI;
+  const { h, replace, icon, topBar, sectionLabel, button, field, segmented, chip, emptyBox, dialog, confirm, toast, gradeBadge } = UI;
   const { content } = Api;
 
   const TYPES = {
@@ -18,11 +18,11 @@
 
   // ======================= Панель учителя =======================
   function admin(params) {
-    const tab = ["works", "tasks", "students"].includes(params.tab) ? params.tab : "works";
+    const tab = ["works", "journal", "tasks", "students"].includes(params.tab) ? params.tab : "works";
     const tabs = h("nav", { class: "tabs" },
-      [["works", "Работы"], ["tasks", "Задания"], ["students", "Ученики"]].map(([key, title]) =>
+      [["works", "Работы"], ["journal", "Журнал"], ["tasks", "Задания"], ["students", "Ученики"]].map(([key, title]) =>
         h("a", { class: "tab" + (key === tab ? " selected" : ""), href: `#/admin/${key}`, "aria-current": key === tab ? "page" : null }, title)));
-    const body = tab === "works" ? works() : tab === "tasks" ? practices() : students();
+    const body = tab === "works" ? works() : tab === "journal" ? journal() : tab === "tasks" ? practices() : students();
     return h("div", { class: "screen" }, topBar("Панель учителя", () => App.back("")), tabs, body);
   }
 
@@ -84,7 +84,11 @@
         items.map((p) => h("a", { class: "card card-link", href: `#/admin/practice/${p.id}` },
           h("div", { class: "grow" },
             h("div", { class: "row" }, h("span", { class: "card-title" }, `${p.grade} класс · ${p.title}`), !p.published && h("span", { class: "pill pill-draft" }, "Черновик")),
-            h("div", { class: "card-sub" }, `Заданий: ${content.tasksOf(p.id).length}`)),
+            h("div", { class: "card-sub" }, [
+              `Заданий: ${content.tasksOf(p.id).length}`,
+              Array.isArray(p.classes) && p.classes.length ? "для " + p.classes.join(", ") : "для всех классов",
+              Content.deadlineOf(p) && "до " + Content.formatDay(Content.deadlineOf(p)),
+            ].filter(Boolean).join(" · "))),
           icon("chevron"))),
       ];
     });
@@ -95,11 +99,193 @@
       h("button", { class: "fab", onclick: () => App.go("admin/practice/new") }, "+ Новая практика"));
   }
 
+  // ----- Журнал -----
+  let journalGroup = null;
+  const byClass = (a, b) => a.localeCompare(b, "ru", { numeric: true });
+
+  /** Практики, которые задавали этому классу (черновики не считаем). */
+  function practicesFor(group) {
+    return Api.state.content.practices
+      .filter((p) => p.published && (!Array.isArray(p.classes) || !p.classes.length || p.classes.includes(group)))
+      .sort((a, b) => a.subject.localeCompare(b.subject) || (a.grade - b.grade) || (a.position - b.position) || a.title.localeCompare(b.title));
+  }
+
+  /** Клетка журнала: оценка, «на проверке», «не сдано после срока» или пусто. */
+  function journalCell(subs, practice) {
+    const graded = subs.find((s) => s.grade > 0);
+    if (graded) return { kind: "grade", grade: graded.grade, sub: graded, late: Content.isLate(graded, practice) };
+    if (subs.length) return { kind: "submitted", sub: subs[0], late: Content.isLate(subs[0], practice) };
+    const d = Content.deadlineOf(practice);
+    return d && d < new Date() ? { kind: "missed" } : { kind: "none" };
+  }
+
+  const cellText = (c) => (c.kind === "grade" ? String(c.grade) : c.kind === "submitted" ? "сдано" : c.kind === "missed" ? "не сдано" : "");
+  const average = (grades) => (grades.length ? (grades.reduce((a, b) => a + b, 0) / grades.length).toFixed(1).replace(".", ",") : "");
+
+  function journal() {
+    return Screens.asyncBlock(() => Api.journal(), ({ students, submissions }) => {
+      const groups = [...new Set(students.map((s) => s.group).filter(Boolean))].sort(byClass);
+      if (!groups.length) return emptyBox("👥", "Журнал появится, когда ученики зарегистрируются");
+      if (!groups.includes(journalGroup)) journalGroup = groups[0];
+      const chips = h("div", { class: "row-wrap" });
+      const body = h("div", { class: "stack" });
+
+      function render() {
+        replace(chips, groups.map((g) => chip(g, g === journalGroup, () => { journalGroup = g; render(); })));
+        const group = journalGroup;
+        const kids = students.filter((s) => s.group === group).sort((a, b) => a.name.localeCompare(b.name, "ru"));
+        const list = practicesFor(group);
+        const subsOf = (st, p) => submissions.filter((s) => s.student === st.id && s.practice === p.id);
+        const rows = kids.map((st) => {
+          const cells = list.map((p) => journalCell(subsOf(st, p), p));
+          return { st, cells, avg: average(cells.filter((c) => c.kind === "grade").map((c) => c.grade)) };
+        });
+
+        const table = h("table", { class: "journal" },
+          h("thead", null, h("tr", null,
+            h("th", { class: "name" }, "Ученик"),
+            list.map((p) => h("th", { class: "practice-col", title: Content.fullTitle(p) }, `${p.grade} кл. · ${p.title}`)),
+            h("th", null, "Средний"))),
+          h("tbody", null, rows.map((r) => h("tr", null,
+            h("td", { class: "name" }, r.st.name),
+            r.cells.map((c) => h("td", { class: c.late ? "late" : "" },
+              c.sub
+                ? h("a", { class: "cell-link", href: `#/submission/${c.sub.id}`, title: c.late ? "Сдано с опозданием" : "Открыть работу" },
+                  c.kind === "grade" ? gradeBadge(c.grade) : h("span", { class: "pill pill-muted" }, "✓"),
+                  c.late && h("span", { class: "late-mark", "aria-label": "с опозданием" }, "⏰"))
+                : c.kind === "missed" ? h("span", { class: "err small" }, "—") : "")),
+            h("td", { class: "avg" }, r.avg)))));
+
+        replace(body,
+          list.length === 0
+            ? emptyBox("📝", `Для ${group} пока нет опубликованных практик`)
+            : [
+              h("div", { class: "journal-wrap" }, table),
+              h("p", { class: "tiny muted" }, "Цифра — оценка, ✓ — сдано и ждёт проверки, ⏰ — сдано с опозданием, красный прочерк — не сдано после срока. Нажмите на клетку, чтобы открыть работу."),
+              button("Скачать для Excel", () => downloadJournal(group, list, rows), { kind: "outline", iconName: "download" }),
+              sectionLabel(`Статистика · ${group}`),
+              list.map((p) => practiceStats(p, kids, submissions)),
+            ]);
+      }
+      render();
+      return [chips, body];
+    });
+  }
+
+  /** Сводка по практике: сколько сдали, средняя оценка, самые трудные задания. */
+  function practiceStats(practice, kids, submissions) {
+    const latest = kids.map((st) => submissions.find((s) => s.student === st.id && s.practice === practice.id)).filter(Boolean);
+    const graded = kids.map((st) => submissions.find((s) => s.student === st.id && s.practice === practice.id && s.grade > 0)).filter(Boolean);
+    const late = latest.filter((s) => Content.isLate(s, practice)).length;
+    // По каждому заданию с автопроверкой: у скольких верно и сколько в среднем попыток.
+    const perTask = new Map();
+    latest.forEach((s) => (s.answers || []).forEach((a) => {
+      if (typeof a.correct !== "boolean") return;
+      const key = a.task || a.prompt;
+      const t = perTask.get(key) || { prompt: a.kind === "formula" ? a.prompt : a.prompt, kind: a.kind, right: 0, total: 0, attempts: 0 };
+      t.total++;
+      if (a.correct) t.right++;
+      t.attempts += a.attempts || 0;
+      perTask.set(key, t);
+    }));
+    const hardest = [...perTask.values()].filter((t) => t.right < t.total).sort((a, b) => a.right / a.total - b.right / b.total).slice(0, 3);
+    const short = (text) => (String(text).length > 60 ? String(text).slice(0, 57) + "…" : String(text));
+    return h("div", { class: "card" },
+      h("div", { class: "card-title" }, Content.fullTitle(practice)),
+      h("div", { class: "stat-row" }, h("span", null, "Сдали"), h("b", null, `${latest.length} из ${kids.length}` + (late ? ` (с опозданием: ${late})` : ""))),
+      h("div", { class: "stat-row" }, h("span", null, "Средняя оценка"), h("b", null, average(graded.map((s) => s.grade)) || "—")),
+      hardest.length > 0 && [
+        h("div", { class: "small bold mt" }, "Самые трудные задания"),
+        hardest.map((t) => h("div", { class: "stat-row" },
+          h("span", { class: "grow" }, short(t.prompt)),
+          h("span", { class: "err" }, `верно у ${t.right} из ${t.total}` + (t.attempts ? ` · попыток ≈ ${(t.attempts / t.total).toFixed(1).replace(".", ",")}` : "")))),
+      ],
+      latest.length > 0 && !hardest.length && perTask.size > 0 && h("p", { class: "small ok mt" }, "Все задания с автопроверкой решены верно 🎉"));
+  }
+
+  /** Файл CSV для Excel: точка с запятой и метка UTF-8, чтобы русские буквы открылись правильно. */
+  function downloadJournal(group, list, rows) {
+    const esc = (v) => {
+      const s = String(v == null ? "" : v);
+      return /[";\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    };
+    const header = ["Ученик", "Класс", ...list.map((p) => Content.fullTitle(p)), "Средний балл"];
+    const lines = [header].concat(rows.map((r) => [r.st.name, group, ...r.cells.map(cellText), r.avg]));
+    const text = "﻿" + lines.map((line) => line.map(esc).join(";")).join("\r\n");
+    const url = URL.createObjectURL(new Blob([text], { type: "text/csv;charset=utf-8" }));
+    const a = h("a", { href: url, download: `Журнал ${group}.csv` });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast("Файл журнала скачан");
+  }
+
+  // ----- Коды классов -----
+  function classCodes(groups) {
+    let newGroup = "";
+    const block = Screens.asyncBlock(() => Api.classCodes(), (codes) => {
+      const active = codes.filter((c) => c.active);
+      const groupField = field({
+        label: "Класс", placeholder: "8А", autocapitalize: "characters",
+        oninput: (v) => { newGroup = v.toUpperCase(); },
+      });
+      groupField.input.addEventListener("input", () => { groupField.input.value = groupField.input.value.toUpperCase(); });
+      const create = button("Создать код", async () => {
+        const g = newGroup.trim();
+        if (!g) return groupField.setError("Впишите класс, например 8А");
+        try {
+          await Api.createClassCode(g);
+          toast(`Код для ${g} создан`);
+          block.reload();
+        } catch (e) {
+          toast(e.message || "Ошибка");
+        }
+      });
+      const action = (fn, message) => async () => {
+        try {
+          await fn();
+          if (message) toast(message);
+          block.reload();
+        } catch (e) {
+          toast(e.message || "Ошибка");
+        }
+      };
+      return [
+        h("p", { class: "muted small" }, active.length
+          ? "Регистрация только по коду: ученик вводит код, и класс подставляется сам. Выключите все коды, чтобы снова разрешить регистрацию без кода."
+          : "Сейчас ученики регистрируются сами и пишут свой класс. Если создать код класса, зарегистрироваться можно будет только по коду — так в класс не попадут чужие."),
+        codes.map((c) => h("div", { class: "card code-card" + (c.active ? "" : " inactive") },
+          h("div", { class: "grow" },
+            h("div", { class: "tiny muted" }, `${c.group} класс` + (c.active ? "" : " · выключен")),
+            h("div", { class: "code-value" }, c.code)),
+          button(c.active ? "Выключить" : "Включить", action(() => Api.setClassCodeActive(c.id, !c.active)), { kind: "text" }),
+          h("button", {
+            class: "icon-btn", type: "button", "aria-label": `Удалить код ${c.code}`, title: "Удалить",
+            onclick: async () => {
+              if (await confirm("Удалить код?", `Код ${c.code} для ${c.group} перестанет работать. Уже зарегистрированные ученики останутся.`, "Удалить")) {
+                action(() => Api.deleteClassCode(c.id), "Код удалён")();
+              }
+            },
+          }, icon("delete", 18)))),
+        h("div", { class: "card stack" },
+          h("div", { class: "small bold" }, "Новый код"),
+          groups.length > 0 && h("div", { class: "row-wrap" }, groups.map((g) => chip(g, false, () => { groupField.input.value = g; newGroup = g; }))),
+          groupField,
+          create),
+      ];
+    });
+    return block;
+  }
+
   // ----- Ученики -----
   function students() {
     return Screens.asyncBlock(() => Api.students(), (items) => {
-      if (!items.length) return emptyBox("👥", "Пока никто из учеников не зарегистрировался");
+      const groups = [...new Set(items.map((s) => s.group).filter(Boolean))].sort(byClass);
+      const codes = [sectionLabel("Коды классов"), classCodes(groups), sectionLabel("Ученики")];
+      if (!items.length) return [codes, emptyBox("👥", "Пока никто из учеников не зарегистрировался")];
       return [
+        codes,
         h("p", { class: "muted small" }, `Учеников: ${items.length}. Нажмите на ученика, чтобы сбросить ему пароль, или на 💬, чтобы написать ему.`),
         items.map((st) => h("div", { class: "card student-row" },
           h("button", { class: "student-main", type: "button", onclick: () => resetPassword(st) },
@@ -156,7 +342,39 @@
       grade: original ? original.grade : 8,
       published: original ? original.published : false,
       position: original ? original.position : 0,
+      classes: original && Array.isArray(original.classes) ? original.classes.slice() : [],
+      deadline: original ? original.deadline || "" : "",
     };
+
+    // ----- Для каких классов -----
+    const classChips = h("div", { class: "row-wrap" });
+    let knownClasses = [...form.classes];
+    const renderClasses = () => replace(classChips,
+      chip("Все классы", form.classes.length === 0, () => { form.classes = []; renderClasses(); }),
+      knownClasses.map((g) => chip(g, form.classes.includes(g), () => {
+        form.classes = form.classes.includes(g) ? form.classes.filter((x) => x !== g) : form.classes.concat(g).sort();
+        renderClasses();
+      })));
+    renderClasses();
+    Api.students().then((list) => {
+      knownClasses = [...new Set(knownClasses.concat(list.map((st) => st.group).filter(Boolean)))]
+        .sort((a, b) => a.localeCompare(b, "ru", { numeric: true }));
+      renderClasses();
+    }, () => {});
+
+    // ----- Срок сдачи (до конца выбранного дня) -----
+    const toDateValue = (iso) => {
+      const d = Content.deadlineOf({ deadline: iso });
+      if (!d) return "";
+      const pad = (n) => String(n).padStart(2, "0");
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    };
+    const deadlineInput = h("input", { type: "date", class: "date-input", "aria-label": "Срок сдачи" });
+    deadlineInput.value = toDateValue(form.deadline);
+    deadlineInput.addEventListener("change", () => {
+      form.deadline = deadlineInput.value ? new Date(deadlineInput.value + "T23:59:00").toISOString() : "";
+    });
+    const clearDeadline = button("Без срока", () => { deadlineInput.value = ""; form.deadline = ""; }, { kind: "text" });
     let busy = false;
 
     const saveBtn = button(id ? "Сохранить изменения" : "Создать практику", savePractice, { cls: "btn-block" });
@@ -475,6 +693,10 @@
         segmented([{ value: "chemistry", label: "⚗️ Химия" }, { value: "biology", label: "🧬 Биология" }], form.subject, (v) => { form.subject = v; }),
         h("div", { class: "small bold" }, "Класс"),
         gradeChips,
+        h("div", { class: "small bold" }, "Для каких классов"),
+        classChips,
+        h("div", { class: "small bold" }, "Срок сдачи (необязательно)"),
+        h("div", { class: "row" }, deadlineInput, clearDeadline),
         h("div", { class: "row" },
           h("div", { class: "grow" }, h("div", null, "Опубликовано"), publishedHint),
           h("label", { class: "switch" }, publishedInput, h("span"))),
