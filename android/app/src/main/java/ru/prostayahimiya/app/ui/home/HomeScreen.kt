@@ -32,6 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -73,11 +74,15 @@ fun HomeScreen(
     onOpenTheory: () -> Unit,
     onOpenCabinet: () -> Unit,
     onOpenAdmin: () -> Unit,
+    onOpenChat: () -> Unit,
 ) {
     val user by repository.user.collectAsState()
     val content by repository.content.collectAsState()
     val contentError by repository.contentError.collectAsState()
     val submissions by repository.mySubmissionsState.collectAsState()
+    val unreadChats by repository.unreadChats.collectAsState()
+    // Каждый раз, когда главная открывается, проверяем, нет ли новых сообщений.
+    LaunchedEffect(user?.id) { repository.refreshUnreadChats() }
     // Прогресс по сданным работам: одинаковый на сайте и в приложении.
     val submittedPractices = submissions.map { it.practice }.filter { content.practice(it) != null }.toSet().size
     val totalPractices = content.practices.size
@@ -90,6 +95,7 @@ fun HomeScreen(
             refreshing = true
             repository.refreshContent()
             if (user?.isTeacher != true) repository.refreshMySubmissions()
+            repository.refreshUnreadChats()
             refreshing = false
         }
     }
@@ -136,6 +142,20 @@ fun HomeScreen(
                             highlighted = true,
                         )
                     }
+                }
+                item {
+                    MenuCard(
+                        emoji = "💬",
+                        badgeColor = MaterialTheme.colorScheme.secondaryContainer,
+                        title = "Чат",
+                        subtitle = if (user?.isTeacher == true) "Чаты классов и личные сообщения" else "Чат класса и вопросы учителю",
+                        onClick = onOpenChat,
+                        badge = when {
+                            unreadChats == 1 -> "новое"
+                            unreadChats > 1 -> "новые: $unreadChats"
+                            else -> null
+                        },
+                    )
                 }
                 if (totalPractices > 0 && user?.isTeacher != true) {
                     item { ProgressCard(submittedPractices, totalPractices) }
@@ -289,6 +309,7 @@ private fun MenuCard(
     subtitle: String,
     onClick: () -> Unit,
     highlighted: Boolean = false,
+    badge: String? = null,
 ) {
     Card(
         onClick = onClick,
@@ -304,6 +325,17 @@ private fun MenuCard(
             Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
                 Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (badge != null) {
+                Surface(shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(end = 8.dp)) {
+                    Text(
+                        badge,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
+                    )
+                }
             }
             Icon(
                 painterResource(R.drawable.ic_chevron_right),

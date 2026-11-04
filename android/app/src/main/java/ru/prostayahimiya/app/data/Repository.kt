@@ -104,6 +104,7 @@ class Repository(private val context: Context) {
         cacheFile.delete()
         _content.value = ContentData()
         _mySubmissions.value = emptyList()
+        _unreadChats.value = 0
         _user.value = null
     }
 
@@ -245,7 +246,141 @@ class Repository(private val context: Context) {
         )
     }.getOrThrow()
 
+    // ---------- Чат ----------
+
+    private val _unreadChats = MutableStateFlow(0)
+    /** В скольких чатах есть новые сообщения (значок на главной). */
+    val unreadChats: StateFlow<Int> = _unreadChats.asStateFlow()
+
+    private fun seenPrefs() = context.getSharedPreferences("chat_seen_${_user.value?.id ?: "guest"}", Context.MODE_PRIVATE)
+
+    /** Запоминает, что пользователь видел сообщения комнаты до [created] включительно. */
+    fun markSeen(room: ChatRoom, created: String) {
+        val prefs = seenPrefs()
+        if (created > prefs.getString(room.id, "").orEmpty()) prefs.edit { putString(room.id, created) }
+    }
+
+    private fun roomFilter(room: ChatRoom): String =
+        if (room.isClass) "kind = \"class\" && group = ${quote(room.key)}"
+        else "kind = \"private\" && student = \"${safeId(room.key)}\""
+
+    /** Последние [limit] сообщений комнаты (старые сверху) и есть ли более ранние. */
+    suspend fun messages(room: ChatRoom, limit: Int): Pair<List<Message>, Boolean> = guard {
+        val page = api.call(
+            "GET",
+            api.url(
+                "api/collections/messages/records",
+                mapOf("filter" to roomFilter(room), "sort" to "-created,-id", "perPage" to limit.toString(), "page" to "1"),
+            ),
+            Page.serializer(Message.serializer()),
+        )
+        page.items.reversed() to (page.totalItems > page.items.size)
+    }.getOrThrow()
+
+    suspend fun sendMessage(room: ChatRoom, text: String): Message {
+        suspend fun post(): Message {
+            val me = _user.value ?: throw ApiException("Нужно войти в аккаунт", 401)
+            return api.call(
+                "POST",
+                api.url("api/collections/messages/records"),
+                Message.serializer(),
+                buildJsonObject {
+                    put("author", me.id)
+                    put("authorName", me.name)
+                    put("fromTeacher", me.isTeacher)
+                    put("kind", room.kind)
+                    put("group", if (room.isClass) room.key else "")
+                    put("student", if (room.isClass) "" else room.key)
+                    put("text", text.trim())
+                },
+            )
+        }
+        return guard {
+            try {
+                post()
+            } catch (e: ApiException) {
+                // Возможно, учитель поменял имя или класс: обновляем профиль и пробуем ещё раз.
+                if (e.status != 400 && e.status != 403) throw e
+                refreshSession()
+                post()
+            }
+        }.getOrThrow()
+    }
+
+    suspend fun deleteMessage(id: String) = guard {
+        api.send("DELETE", api.url("api/collections/messages/records/${safeId(id)}"))
+    }.getOrThrow()
+
+    /**
+     * Список чатов с последним сообщением. Ученик: чат своего класса и переписка с учителем.
+     * Учитель: чаты всех классов и все личные переписки.
+     */
+    suspend fun chatThreads(): List<ChatThread> = guard {
+        val me = _user.value ?: return@guard emptyList()
+        val seen = seenPrefs()
+        suspend fun last(room: ChatRoom): Message? = api.call(
+            "GET",
+            api.url(
+                "api/collections/messages/records",
+                mapOf("filter" to roomFilter(room), "sort" to "-created,-id", "perPage" to "1", "skipTotal" to "1"),
+            ),
+            Page.serializer(Message.serializer()),
+        ).items.firstOrNull()
+        fun ChatThread.withUnread() = copy(
+            unread = last != null && last.author != me.id && last.created > seen.getString(room.id, "").orEmpty(),
+        )
+
+        if (!me.isTeacher) {
+            buildList {
+                if (me.group.isNotBlank()) {
+                    val room = ChatRoom.ofClass(me.group)
+                    add(ChatThread(room, "Чат класса ${me.group}", last = last(room)))
+                }
+                val room = ChatRoom.private(me.id)
+                add(ChatThread(room, "Учитель", "Личные сообщения", last = last(room)))
+            }.map { it.withUnread() }
+        } else {
+            val students = students()
+            val groups = students.map { it.group }.filter { it.isNotBlank() }.distinct()
+                .sortedWith(compareBy({ it.takeWhile(Char::isDigit).toIntOrNull() ?: 0 }, { it }))
+            val classes = groups.map { group ->
+                val room = ChatRoom.ofClass(group)
+                ChatThread(room, "$group класс", last = last(room))
+            }
+            val privateMessages = api.call(
+                "GET",
+                api.url(
+                    "api/collections/messages/records",
+                    mapOf("filter" to "kind = \"private\"", "sort" to "-created,-id", "perPage" to "500", "skipTotal" to "1"),
+                ),
+                Page.serializer(Message.serializer()),
+            ).items
+            val byId = students.associateBy { it.id }
+            val threads = privateMessages.distinctBy { it.student }.map { m ->
+                val student = byId[m.student]
+                ChatThread(
+                    ChatRoom.private(m.student),
+                    student?.name ?: "Ученик",
+                    student?.group?.takeIf { it.isNotBlank() }?.let { "$it класс" }.orEmpty(),
+                    last = m,
+                )
+            }
+            (classes + threads).map { it.withUnread() }
+        }
+    }.getOrThrow()
+
+    /** Пересчитывает значок «новые сообщения». Без интернета оставляет прежнее число. */
+    suspend fun refreshUnreadChats() {
+        runCatching { chatThreads() }.onSuccess { list -> _unreadChats.value = list.count { it.unread } }
+    }
+
     // ---------- Внутреннее ----------
+
+    /** Строка в кавычках для фильтра PocketBase (как pb.filter() в официальной библиотеке). */
+    private fun quote(value: String) = "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
+
+    /** id записей PocketBase — только латинские буквы и цифры. */
+    private fun safeId(id: String) = id.filter { it.isLetterOrDigit() && it.code < 128 }
 
     private suspend fun <T> save(collection: String, id: String, body: JsonObject, serializer: kotlinx.serialization.KSerializer<T>): T =
         if (id.isEmpty()) {
