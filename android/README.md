@@ -4,10 +4,10 @@
 Код на Kotlin, интерфейс на Jetpack Compose.
 
 <p>
-  <img src="store/screenshots/1-glavnaya.png" width="190" alt="Главный экран">
-  <img src="store/screenshots/3-formuly.png" width="190" alt="Задания на формулы">
-  <img src="store/screenshots/5-kabinet.png" width="190" alt="Личный кабинет с оценкой">
-  <img src="store/screenshots/6-proverka.png" width="190" alt="Учитель ставит оценку">
+  <img src="store/screenshots/1-glavnaya.jpg" width="190" alt="Главный экран">
+  <img src="store/screenshots/2-formuly.jpg" width="190" alt="Задания на формулы">
+  <img src="store/screenshots/4-kabinet.jpg" width="190" alt="Личный кабинет с оценкой">
+  <img src="store/screenshots/6-proverka.jpg" width="190" alt="Учитель ставит оценку">
 </p>
 
 ## Что умеет
@@ -118,7 +118,7 @@ RuStore не примет новую версию с тем же `versionCode`.
 - [ ] Создать приложение, имя пакета: `ru.prostayahimiya.app` (если хотите другое, поменяйте `applicationId` в `app/build.gradle.kts` **до** первой загрузки, потом уже нельзя)
 - [ ] Загрузить подписанный `app-release.apk`
 - [ ] Иконка 512×512: `store/icon-512.png`
-- [ ] Скриншоты: `store/screenshots/` (или снимите свои с телефона)
+- [ ] Скриншоты: `store/screenshots/` (6 штук, 1080×1920, пропорция 9:16 — как требует RuStore)
 - [ ] Название и описание: готовый текст в `store/rustore-opisanie.md`
 - [ ] Категория «Образование», возрастной рейтинг 0+ или 6+
 - [ ] Сервер работает по https на `урокискириллом.рф`, учителю выданы права
