@@ -398,7 +398,7 @@
     { subject: "biology", grade: 6, url: "https://www.yaklass.ru/p/biologia/6-klass?YklShowAll=1" },
     { subject: "biology", grade: 5, url: "https://www.yaklass.ru/p/biologia/5-klass?YklShowAll=1" },
   ];
-  const BASE_GRADES = { chemistry: [8, 9, 10], biology: [5, 6, 7, 8, 9] };
+  const BASE_GRADES = { chemistry: [8, 9, 10, 11], biology: [5, 6, 7, 8, 9, 10, 11] };
 
   function grades(subject) {
     const all = BASE_GRADES[subject].concat(content.practicesOf(subject).map((p) => p.grade));
