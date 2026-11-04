@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Простая химия — приложение для уроков химии и биологии</title>
+  <meta name="description" content="Бесплатное приложение для 5–11 классов: практики по химии и биологии с мгновенной проверкой, оценки учителя, чат класса, таблица Менделеева. Для Android и iPhone.">
+  <meta name="theme-color" content="#0f5c47">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'">
+  <!-- Красивая карточка, когда ссылку присылают в мессенджере или ВКонтакте -->
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Простая химия — приложение для уроков">
+  <meta property="og:description" content="Практики по химии и биологии с мгновенной проверкой, оценки учителя и чат класса. Бесплатно, без рекламы.">
+  <meta property="og:image" content="https://xn--h1aaafbiaikhnfkx.xn--p1ai/images/icon-512.png">
+  <link rel="icon" type="image/png" href="../images/icon-192.png">
+  <link rel="apple-touch-icon" href="../images/icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700;900&display=swap">
+  <link rel="stylesheet" href="../css/landing.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="../">
+      <img src="../images/icon-192.png" alt="" width="32" height="32">
+      <span>Простая химия</span>
+    </a>
+    <a class="topbar-link" href="../">Открыть сайт →</a>
+  </header>
+
+  <main>
+    <!-- ===== Главный блок ===== -->
+    <section class="hero">
+      <div class="hero-inner">
+        <div class="hero-text">
+          <img class="hero-icon" src="../images/icon-512.png" alt="Иконка приложения «Простая химия»" width="112" height="112">
+          <h1>Простая химия</h1>
+          <p class="hero-sub">Химия и биология для 5–11 классов. Практики с мгновенной проверкой, оценки учителя и чат класса — в телефоне.</p>
+          <ul class="chips" aria-label="Коротко о приложении">
+            <li>Бесплатно</li>
+            <li>Без рекламы</li>
+            <li>Android и iPhone</li>
+            <li id="version-chip" hidden></li>
+          </ul>
+          <div class="actions">
+            <a id="apk-button" class="btn btn-primary" href="#android" aria-disabled="true">
+              <span class="btn-icon" aria-hidden="true">⬇</span>
+              <span class="btn-text"><b>Скачать для Android</b><small id="apk-meta">файл APK</small></span>
+            </a>
+            <a id="rustore-button" class="btn btn-store" href="#android">
+              <span class="btn-icon store-logo" aria-hidden="true">R</span>
+              <span class="btn-text"><small id="rustore-small">Скоро в</small><b>RuStore</b></span>
+            </a>
+            <a class="btn btn-ghost" href="#iphone">
+              <span class="btn-icon" aria-hidden="true">🍏</span>
+              <span class="btn-text"><small>Для</small><b>iPhone</b></span>
+            </a>
+          </div>
+        </div>
+        <div class="hero-phone" aria-hidden="true">
+          <div class="phone"><img src="../images/app/home.jpg" alt="" width="270" height="540"></div>
+          <div class="phone phone-back"><img src="../images/app/test.jpg" alt="" width="270" height="540"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== Скриншоты ===== -->
+    <section class="section" aria-labelledby="shots-title">
+      <h2 id="shots-title">Как это выглядит</h2>
+      <div class="gallery" tabindex="0" aria-label="Скриншоты приложения, листайте вбок">
+        <figure><div class="phone"><img src="../images/app/home.jpg" alt="Главный экран: прогресс, сроки сдачи, чат" loading="lazy" width="270" height="540"></div><figcaption>Прогресс и сроки сдачи</figcaption></figure>
+        <figure><div class="phone"><img src="../images/app/test.jpg" alt="Тест с выбором ответов" loading="lazy" width="270" height="540"></div><figcaption>Тесты с мгновенной проверкой</figcaption></figure>
+        <figure><div class="phone"><img src="../images/app/fill.jpg" alt="Задание с пропущенными словами и картинкой" loading="lazy" width="270" height="540"></div><figcaption>Пропуски и картинки</figcaption></figure>
+        <figure><div class="phone"><img src="../images/app/formulas.jpg" alt="Проверка формул по валентности" loading="lazy" width="270" height="540"></div><figcaption>Формулы и уравнения</figcaption></figure>
+        <figure><div class="phone"><img src="../images/app/periodic.jpg" alt="Таблица Менделеева" loading="lazy" width="270" height="540"></div><figcaption>Таблица Менделеева</figcaption></figure>
+        <figure><div class="phone"><img src="../images/app/chat.jpg" alt="Чат класса с учителем" loading="lazy" width="270" height="540"></div><figcaption>Чат класса с учителем</figcaption></figure>
+        <figure><div class="phone"><img src="../images/app/journal.jpg" alt="Журнал учителя с оценками" loading="lazy" width="270" height="540"></div><figcaption>Журнал для учителя</figcaption></figure>
+      </div>
+    </section>
+
+    <!-- ===== Возможности ===== -->
+    <section class="section" aria-labelledby="features-title">
+      <h2 id="features-title">Что умеет</h2>
+      <div class="features">
+        <article class="feature"><span class="feature-emoji" aria-hidden="true">⚡</span><h3>Мгновенная проверка</h3><p>Формулы, уравнения, тесты, пропущенные слова и молярная масса — ответ проверяется сразу, а ошибка объясняется.</p></article>
+        <article class="feature"><span class="feature-emoji" aria-hidden="true">📝</span><h3>Сдача работ учителю</h3><p>Работа отправляется в один клик. Оценку и комментарий учителя видно в личном кабинете.</p></article>
+        <article class="feature"><span class="feature-emoji" aria-hidden="true">⏰</span><h3>Сроки сдачи</h3><p>На главном экране — какие практики сдать и до какого числа. Прогресс считается по своему классу.</p></article>
+        <article class="feature"><span class="feature-emoji" aria-hidden="true">💬</span><h3>Чат класса</h3><p>Общий чат класса и личные вопросы учителю. Учитель видит все сообщения и может удалить лишнее.</p></article>
+        <article class="feature"><span class="feature-emoji" aria-hidden="true">🧪</span><h3>Справочник</h3><p>Таблица Менделеева и таблица растворимости — открываются прямо из задания.</p></article>
+        <article class="feature"><span class="feature-emoji" aria-hidden="true">🔒</span><h3>Честно, без списывания</h3><p>Задания нельзя скопировать, ответы не вставить. Правильные ответы хранятся только на сервере.</p></article>
+      </div>
+    </section>
+
+    <!-- ===== Для учителя ===== -->
+    <section class="section teacher" aria-labelledby="teacher-title">
+      <div class="teacher-inner">
+        <div>
+          <h2 id="teacher-title">Для учителя</h2>
+          <ul class="checks">
+            <li>Свои практики и задания шести видов, картинки, варианты для каждого ученика</li>
+            <li>Проверка работ, оценки и комментарии</li>
+            <li>Журнал класса и выгрузка в Excel</li>
+            <li>Статистика: кто сдал и какие задания самые трудные</li>
+            <li>Коды классов для регистрации, сроки сдачи</li>
+          </ul>
+        </div>
+        <div class="phone"><img src="../images/app/journal.jpg" alt="Журнал учителя" loading="lazy" width="270" height="540"></div>
+      </div>
+    </section>
+
+    <!-- ===== Установка ===== -->
+    <section class="section install" aria-labelledby="install-title">
+      <h2 id="install-title">Как установить</h2>
+      <div class="install-grid">
+        <article class="card" id="android">
+          <h3>🤖 Android</h3>
+          <ol class="steps">
+            <li>Нажмите <b>«Скачать для Android»</b> вверху страницы.</li>
+            <li>Откройте скачанный файл <b>prostaya-himiya.apk</b> (он появится в уведомлениях или в «Загрузках»).</li>
+            <li>Если телефон спросит, разрешите установку <b>из этого источника</b> — это нужно один раз.</li>
+            <li>Нажмите <b>«Установить»</b> и откройте приложение.</li>
+          </ol>
+          <p class="note" id="rustore-note">Приложение скоро появится в RuStore — оттуда оно будет обновляться само.</p>
+        </article>
+        <article class="card" id="iphone">
+          <h3>🍏 iPhone</h3>
+          <ol class="steps">
+            <li>Откройте <b>урокискириллом.рф</b> в браузере <b>Safari</b>.</li>
+            <li>Нажмите <b>«Поделиться»</b> — квадрат со стрелкой внизу экрана.</li>
+            <li>Выберите <b>«На экран „Домой“»</b> и нажмите <b>«Добавить»</b>.</li>
+            <li>На экране появится значок «Простая химия» — он открывается как приложение.</li>
+          </ol>
+          <p class="note">Магазина App Store нет, но всё то же самое работает на сайте: задания, оценки и чат общие.</p>
+        </article>
+        <article class="card qr-card">
+          <h3>📱 Наведите камеру</h3>
+          <img class="qr" src="../images/qr-app.svg" alt="QR-код со ссылкой на эту страницу" width="176" height="176">
+          <p class="note">QR-код ведёт на эту страницу. Его можно показать на уроке или распечатать.</p>
+          <p class="url">урокискириллом.рф/app</p>
+        </article>
+      </div>
+    </section>
+
+    <!-- ===== Что нового ===== -->
+    <section class="section" id="whats-new" aria-labelledby="new-title" hidden>
+      <h2 id="new-title">Что нового</h2>
+      <div class="card whats-new">
+        <div class="whats-new-head"><b id="new-version"></b><span id="new-date"></span></div>
+        <p id="new-notes"></p>
+      </div>
+    </section>
+
+    <!-- ===== Вопросы ===== -->
+    <section class="section faq" aria-labelledby="faq-title">
+      <h2 id="faq-title">Частые вопросы</h2>
+      <details><summary>Это бесплатно?</summary><p>Да, полностью бесплатно и без рекламы.</p></details>
+      <details><summary>Безопасно ли ставить файл APK?</summary><p>Да: это то же приложение, что и в RuStore, подписанное автором. Телефон предупреждает о любых файлах не из магазина — это обычное сообщение.</p></details>
+      <details><summary>Нужен ли интернет?</summary><p>Да: задания, проверка ответов, оценки и чат хранятся на сервере, поэтому они одинаковые на телефоне и на компьютере.</p></details>
+      <details><summary>Как войти?</summary><p>Зарегистрируйтесь по логину и паролю. Если учитель дал код класса, впишите его при регистрации. Забыли пароль — учитель сбросит его.</p></details>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p><b>Простая химия с Ириной</b></p>
+    <p><a href="../">Сайт</a> · <a href="../privacy.html">Политика конфиденциальности</a></p>
+  </footer>
+
+  <script src="../js/config.js"></script>
+  <script src="../js/landing.js"></script>
+</body>
+</html>

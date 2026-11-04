@@ -1,0 +1,182 @@
+/* Страница приложения (урокискириллом.рф/app). Цвета — как в приложении. */
+
+:root {
+  --brand: #187a5f;
+  --brand-dark: #0f5c47;
+  --brand-ink: #002117;
+  --mint: #b8efd9;
+  --bg: #f5f6f5;
+  --card: #ffffff;
+  --ink: #1a1c1b;
+  --muted: #55605b;
+  --line: #dde2df;
+  --hero-from: #0f5c47;
+  --hero-to: #1d8a6c;
+  --shadow: 0 18px 40px rgba(6, 40, 30, 0.22);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111413;
+    --card: #1b1f1d;
+    --ink: #e2e3e1;
+    --muted: #a6b0ab;
+    --line: #333836;
+    --mint: #1f4d3e;
+    --hero-from: #0b3a2d;
+    --hero-to: #14604b;
+    --shadow: 0 18px 40px rgba(0, 0, 0, 0.5);
+    color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: Roboto, "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
+  font-size: 17px;
+  line-height: 1.5;
+}
+img { display: block; max-width: 100%; }
+a { color: var(--brand); }
+[hidden] { display: none !important; }
+
+/* ----- Верхняя полоска ----- */
+.topbar {
+  position: sticky; top: 0; z-index: 10;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px max(16px, env(safe-area-inset-left));
+  background: color-mix(in srgb, var(--hero-from) 92%, transparent);
+  backdrop-filter: blur(10px);
+  color: #fff;
+}
+.brand { display: flex; align-items: center; gap: 10px; color: #fff; text-decoration: none; font-weight: 700; }
+.brand img { border-radius: 8px; }
+.topbar-link { color: #d8f6ea; text-decoration: none; font-size: 15px; }
+.topbar-link:hover { color: #fff; }
+
+/* ----- Главный блок ----- */
+.hero {
+  background:
+    radial-gradient(1200px 500px at 85% -10%, rgba(184, 239, 217, 0.35), transparent 60%),
+    radial-gradient(800px 400px at -10% 110%, rgba(184, 239, 217, 0.2), transparent 60%),
+    linear-gradient(135deg, var(--hero-from), var(--hero-to));
+  color: #fff;
+  overflow: hidden;
+}
+.hero-inner {
+  max-width: 1080px; margin: 0 auto;
+  padding: 40px 20px 56px;
+  display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 32px; align-items: center;
+}
+.hero-icon { width: 112px; height: 112px; border-radius: 26px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25); }
+.hero h1 { font-size: clamp(36px, 6vw, 56px); line-height: 1.05; margin: 20px 0 12px; font-weight: 900; letter-spacing: -0.5px; }
+.hero-sub { font-size: clamp(17px, 2.2vw, 20px); margin: 0 0 18px; color: #e3f8ef; max-width: 34ch; }
+.chips { list-style: none; padding: 0; margin: 0 0 24px; display: flex; flex-wrap: wrap; gap: 8px; }
+.chips li { padding: 4px 12px; border-radius: 999px; background: rgba(255, 255, 255, 0.16); border: 1px solid rgba(255, 255, 255, 0.28); font-size: 14px; }
+
+.actions { display: flex; flex-wrap: wrap; gap: 12px; }
+.btn {
+  display: inline-flex; align-items: center; gap: 12px;
+  min-height: 60px; padding: 10px 20px 10px 14px; border-radius: 16px;
+  text-decoration: none; transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.btn:hover { transform: translateY(-2px); }
+.btn-icon { width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; font-size: 22px; border-radius: 10px; flex: none; }
+.btn-text { display: flex; flex-direction: column; line-height: 1.15; }
+.btn-text b { font-size: 18px; }
+.btn-text small { font-size: 12px; opacity: 0.85; }
+.btn-primary { background: #fff; color: var(--brand-dark); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22); }
+.btn-primary .btn-icon { background: var(--mint); color: var(--brand-ink); }
+.btn-primary[aria-disabled="true"] { opacity: 0.75; }
+.btn-store { background: #111; color: #fff; border: 1px solid rgba(255, 255, 255, 0.25); }
+.store-logo { background: linear-gradient(135deg, #0077ff, #00c3ff); color: #fff; font-weight: 900; font-size: 18px; }
+.btn-store.soon { opacity: 0.8; }
+.btn-ghost { color: #fff; border: 1px solid rgba(255, 255, 255, 0.45); }
+
+/* ----- Телефоны ----- */
+.phone {
+  width: 270px; aspect-ratio: 1 / 2; flex: none;
+  border-radius: 34px; padding: 9px;
+  background: linear-gradient(160deg, #2a2f2d, #0c0e0d);
+  box-shadow: var(--shadow), inset 0 0 0 1.5px rgba(255, 255, 255, 0.12);
+}
+.phone img { width: 100%; height: 100%; object-fit: cover; border-radius: 26px; background: #fff; }
+.hero-phone { position: relative; height: 560px; }
+.hero-phone .phone { position: absolute; right: 70px; top: 0; z-index: 2; transform: rotate(-3deg); }
+.hero-phone .phone-back { right: -40px; top: 40px; z-index: 1; transform: rotate(6deg) scale(0.9); opacity: 0.9; }
+
+/* ----- Разделы ----- */
+.section { max-width: 1080px; margin: 0 auto; padding: 56px 20px 0; }
+.section h2 { font-size: clamp(26px, 4vw, 36px); margin: 0 0 20px; font-weight: 900; letter-spacing: -0.3px; }
+
+.gallery {
+  display: flex; gap: 22px; overflow-x: auto; padding: 8px 4px 24px;
+  scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch;
+}
+.gallery:focus-visible { outline: 2px solid var(--brand); border-radius: 12px; }
+.gallery figure { margin: 0; scroll-snap-align: center; text-align: center; }
+.gallery .phone { width: 230px; }
+.gallery figcaption { margin-top: 12px; font-size: 15px; color: var(--muted); font-weight: 500; }
+
+.features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.feature { background: var(--card); border: 1px solid var(--line); border-radius: 20px; padding: 22px; }
+.feature-emoji { font-size: 30px; display: inline-flex; width: 52px; height: 52px; align-items: center; justify-content: center; background: var(--mint); border-radius: 14px; }
+.feature h3 { margin: 14px 0 6px; font-size: 19px; }
+.feature p { margin: 0; color: var(--muted); font-size: 16px; }
+
+.teacher-inner {
+  display: grid; grid-template-columns: 1fr auto; gap: 32px; align-items: center;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--mint) 70%, var(--card)), var(--card));
+  border: 1px solid var(--line); border-radius: 28px; padding: 32px;
+}
+.teacher-inner .phone { width: 220px; }
+.checks { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
+.checks li { position: relative; padding-left: 34px; font-size: 18px; }
+.checks li::before { content: "✓"; position: absolute; left: 0; top: 1px; width: 24px; height: 24px; border-radius: 50%; background: var(--brand); color: #fff; font-size: 14px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+
+.install-grid { display: grid; grid-template-columns: 1fr 1fr 0.8fr; gap: 16px; align-items: start; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 20px; padding: 22px; }
+.card h3 { margin: 0 0 12px; font-size: 20px; }
+.steps { margin: 0; padding-left: 22px; display: grid; gap: 8px; }
+.note { color: var(--muted); font-size: 15px; margin: 14px 0 0; }
+.qr-card { text-align: center; }
+.qr { margin: 4px auto 0; width: 176px; height: 176px; background: #fff; border-radius: 16px; padding: 10px; }
+.url { font-weight: 700; margin: 8px 0 0; }
+
+.whats-new-head { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 8px; color: var(--muted); }
+.whats-new-head b { color: var(--ink); }
+.whats-new p { margin: 0; white-space: pre-line; }
+
+.faq details { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 14px 18px; margin-bottom: 10px; }
+.faq summary { cursor: pointer; font-weight: 700; }
+.faq details p { margin: 10px 0 0; color: var(--muted); }
+
+.footer { text-align: center; padding: 56px 20px 40px; color: var(--muted); font-size: 15px; }
+.footer p { margin: 4px 0; }
+
+/* ----- Телефон и планшет ----- */
+@media (max-width: 860px) {
+  .hero-inner { grid-template-columns: 1fr; padding-top: 28px; }
+  .hero-phone { height: 470px; }
+  .hero-phone .phone { width: 230px; left: 50%; right: auto; margin-left: -150px; }
+  .hero-phone .phone-back { margin-left: -40px; }
+  .features { grid-template-columns: 1fr 1fr; }
+  .install-grid { grid-template-columns: 1fr; }
+  .teacher-inner { grid-template-columns: 1fr; padding: 24px; }
+  .teacher-inner .phone { margin: 0 auto; }
+}
+@media (max-width: 560px) {
+  body { font-size: 16px; }
+  .features { grid-template-columns: 1fr; }
+  .actions .btn { flex: 1 1 100%; }
+  .gallery .phone { width: 200px; }
+  .hero-icon { width: 88px; height: 88px; border-radius: 22px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .btn { transition: none; }
+}

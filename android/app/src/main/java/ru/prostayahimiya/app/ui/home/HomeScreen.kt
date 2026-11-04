@@ -88,6 +88,8 @@ fun HomeScreen(
     val contentError by repository.contentError.collectAsState()
     val submissions by repository.mySubmissionsState.collectAsState()
     val unreadChats by repository.unreadChats.collectAsState()
+    val update by repository.update.collectAsState()
+    LaunchedEffect(Unit) { repository.checkForUpdate() }
     // Каждый раз, когда главная открывается, проверяем, нет ли новых сообщений.
     LaunchedEffect(user?.id) { repository.refreshUnreadChats() }
     // Прогресс по сданным работам: одинаковый на сайте и в приложении.
@@ -131,6 +133,36 @@ fun HomeScreen(
                 item { Header(Content.allGradesRange(content), user, onOpenCabinet) }
                 if (contentError != null) {
                     item { OfflineBanner(contentError.orEmpty(), ::refresh) }
+                }
+                update?.let { release ->
+                    item {
+                        Card(
+                            onClick = { context.openLink(repository.appPageUrl) },
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+                                Text("🆕", style = MaterialTheme.typography.headlineSmall)
+                                Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                                    Text(
+                                        "Вышла версия ${release.versionName}",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    )
+                                    Text(
+                                        "Нажмите, чтобы скачать и установить новую версию",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    )
+                                }
+                                Icon(
+                                    painterResource(R.drawable.ic_open_in_new),
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                )
+                            }
+                        }
+                    }
                 }
                 item {
                     Image(

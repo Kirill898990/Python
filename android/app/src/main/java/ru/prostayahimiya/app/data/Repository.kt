@@ -360,6 +360,39 @@ class Repository(private val context: Context) {
         )
     }.getOrThrow()
 
+    // ---------- Новая версия приложения ----------
+
+    private val _update = MutableStateFlow<AppRelease?>(null)
+    /** Вышедшая новая версия (если приложение поставлено не из RuStore — там обновления приходят сами). */
+    val update: StateFlow<AppRelease?> = _update.asStateFlow()
+
+    /** Адрес страницы приложения на сайте, где можно скачать новую версию. */
+    val appPageUrl: String get() = BuildConfig.SERVER_URL.trimEnd('/') + "/app/"
+
+    suspend fun checkForUpdate() {
+        if (installedFromRuStore()) return
+        runCatching {
+            api.call(
+                "GET",
+                api.url("api/collections/app_releases/records", mapOf("sort" to "-versionCode", "perPage" to "1", "skipTotal" to "1")),
+                Page.serializer(AppRelease.serializer()),
+            ).items.firstOrNull()
+        }.onSuccess { latest ->
+            _update.value = latest?.takeIf { it.versionCode > BuildConfig.VERSION_CODE }
+        }
+    }
+
+    private fun installedFromRuStore(): Boolean = runCatching {
+        val pm = context.packageManager
+        val installer = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            pm.getInstallSourceInfo(context.packageName).installingPackageName
+        } else {
+            @Suppress("DEPRECATION")
+            pm.getInstallerPackageName(context.packageName)
+        }
+        installer == "ru.vk.store"
+    }.getOrDefault(false)
+
     // ---------- Заметки учителя к теории ----------
 
     /** Сохранить заметку (пустой текст — удалить её). */

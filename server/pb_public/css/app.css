@@ -751,3 +751,4 @@ p { margin: 0; }
 .note-card { margin-top: 10px; padding: 12px; border-radius: 12px; background: var(--tertiary-container); color: var(--on-tertiary-container); white-space: pre-wrap; }
 .variant-pill { background: var(--secondary-container); color: var(--on-secondary-container); border-color: transparent; }
 .variant-inline { margin-left: 8px; }
+.install-more { margin-top: 12px; align-self: flex-start; }
