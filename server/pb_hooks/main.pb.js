@@ -123,3 +123,13 @@ function keepTeacherAnswer(e) {
 }
 onRecordCreateRequest(keepTeacherAnswer, "tasks")
 onRecordUpdateRequest(keepTeacherAnswer, "tasks")
+
+// Файлы сайта браузер должен каждый раз сверять с сервером (это быстро: если файл не менялся,
+// сервер отвечает «не изменилось»). Иначе после обновления сайта у учеников открывается старая версия.
+routerUse((e) => {
+  const path = e.request.url.path
+  if (!path.startsWith("/api/") && !path.startsWith("/_/")) {
+    e.response.header().set("Cache-Control", "no-cache")
+  }
+  return e.next()
+})
