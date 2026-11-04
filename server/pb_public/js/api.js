@@ -390,8 +390,12 @@
 
   // Постоянное содержимое: ссылки на теорию и классы, которые показываются всегда.
   const THEORY = [
+    { subject: "chemistry", grade: 11, url: "https://www.yaklass.ru/p/himija/11-klass?YklShowAll=1" },
+    { subject: "chemistry", grade: 10, url: "https://www.yaklass.ru/p/himija/10-klass" },
     { subject: "chemistry", grade: 9, url: "https://www.yaklass.ru/p/himija/9-klass" },
     { subject: "chemistry", grade: 8, url: "https://www.yaklass.ru/p/himija/8-klass?YklShowAll=1" },
+    { subject: "biology", grade: 11, url: "https://www.yaklass.ru/p/biologia/11-klass?YklShowAll=1" },
+    { subject: "biology", grade: 10, url: "https://www.yaklass.ru/p/biologia/10-klass" },
     { subject: "biology", grade: 9, url: "https://www.yaklass.ru/p/biologia/9-klass?YklShowAll=1" },
     { subject: "biology", grade: 8, url: "https://www.yaklass.ru/p/biologia/8-klass?YklShowAll=1" },
     { subject: "biology", grade: 7, url: "https://www.yaklass.ru/p/biologia/7-klass?YklShowAll=1" },

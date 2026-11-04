@@ -29,8 +29,12 @@ object Content {
     const val PRIVACY_URL = "https://xn--h1aaafbiaikhnfkx.xn--p1ai/privacy.html"
 
     val theory: List<TheoryLink> = listOf(
+        TheoryLink(Subject.CHEMISTRY, 11, "https://www.yaklass.ru/p/himija/11-klass?YklShowAll=1"),
+        TheoryLink(Subject.CHEMISTRY, 10, "https://www.yaklass.ru/p/himija/10-klass"),
         TheoryLink(Subject.CHEMISTRY, 9, "https://www.yaklass.ru/p/himija/9-klass"),
         TheoryLink(Subject.CHEMISTRY, 8, "https://www.yaklass.ru/p/himija/8-klass?YklShowAll=1"),
+        TheoryLink(Subject.BIOLOGY, 11, "https://www.yaklass.ru/p/biologia/11-klass?YklShowAll=1"),
+        TheoryLink(Subject.BIOLOGY, 10, "https://www.yaklass.ru/p/biologia/10-klass"),
         TheoryLink(Subject.BIOLOGY, 9, "https://www.yaklass.ru/p/biologia/9-klass?YklShowAll=1"),
         TheoryLink(Subject.BIOLOGY, 8, "https://www.yaklass.ru/p/biologia/8-klass?YklShowAll=1"),
         TheoryLink(Subject.BIOLOGY, 7, "https://www.yaklass.ru/p/biologia/7-klass?YklShowAll=1"),
