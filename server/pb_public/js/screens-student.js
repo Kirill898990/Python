@@ -250,6 +250,52 @@
       groups);
   }
 
+  // ======================= Защита от списывания =======================
+
+  const PASTE_MESSAGE = "Вставлять текст нельзя — напиши ответ сам";
+  const COPY_MESSAGE = "Копировать задания нельзя";
+
+  /**
+   * Для учеников: задания нельзя выделить и скопировать, а в поля ответа нельзя вставить текст
+   * (ни через Ctrl+V и меню, ни перетаскиванием, ни большим куском с клавиатуры телефона).
+   */
+  function protectFromCopy(root) {
+    root.classList.add("no-copy");
+    const isField = (el) => el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA");
+    const block = (message) => (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (message) UI.toast(message);
+    };
+    root.addEventListener("copy", block(COPY_MESSAGE), true);
+    root.addEventListener("cut", block(COPY_MESSAGE), true);
+    root.addEventListener("contextmenu", block(null), true);
+    root.addEventListener("dragstart", block(null), true);
+    root.addEventListener("paste", block(PASTE_MESSAGE), true);
+    root.addEventListener("drop", block(PASTE_MESSAGE), true);
+    root.addEventListener("beforeinput", (e) => {
+      if (/^insertFrom(Paste|Drop|Yank)/.test(e.inputType || "")) block(PASTE_MESSAGE)(e);
+    }, true);
+
+    // Клавиатура телефона может вставить текст из буфера как обычный ввод.
+    // Если за одно изменение добавилось слишком много символов, откатываем его.
+    const last = new WeakMap();
+    root.addEventListener("focusin", (e) => { if (isField(e.target)) last.set(e.target, e.target.value); }, true);
+    root.addEventListener("input", (e) => {
+      const el = e.target;
+      if (!isField(el)) return;
+      const limit = el.tagName === "TEXTAREA" ? 30 : 6;
+      if (last.has(el) && el.value.length - last.get(el).length > limit) {
+        el.value = last.get(el);
+        e.stopImmediatePropagation();
+        UI.toast(PASTE_MESSAGE);
+        return;
+      }
+      last.set(el, el.value);
+    }, true);
+    return root;
+  }
+
   // ======================= Практика =======================
   function practice(params) {
     const p = content.practice(params.id);
@@ -489,7 +535,7 @@
       App.render();
     };
 
-    return h("div", { class: "screen" },
+    const screen = h("div", { class: "screen" },
       topBar(`${Content.subjectOf(p.subject).title} · ${p.grade} класс`, () => App.back(`subject/${p.subject}`),
         menuButton([{ label: "Начать заново", onclick: reset }])),
       h("h2", { class: "home-title" }, p.title),
@@ -513,6 +559,8 @@
       sections.length > 0 && (user && user.isTeacher
         ? h("p", { class: "muted small" }, "Так практику видят ученики. Сдавать работу учителю не нужно.")
         : submitCard()));
+    // Ученику нельзя копировать задания и вставлять текст в ответы. У учителя ограничений нет.
+    return user && user.isTeacher ? screen : protectFromCopy(screen);
   }
 
   // ======================= Личный кабинет =======================
@@ -581,9 +629,10 @@
         answers,
       ];
     });
-    return h("div", { class: "screen" },
+    const screen = h("div", { class: "screen" },
       topBar(isTeacher ? "Проверка работы" : "Моя работа", () => App.back(isTeacher ? "admin/works" : "cabinet")),
       body);
+    return isTeacher ? screen : protectFromCopy(screen);
   }
 
   function gradeView(s) {

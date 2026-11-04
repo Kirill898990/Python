@@ -74,6 +74,12 @@ import ru.prostayahimiya.app.data.Repository
 import ru.prostayahimiya.app.data.Task
 import ru.prostayahimiya.app.data.formatServerDate
 import ru.prostayahimiya.app.ui.components.BackTopBar
+import ru.prostayahimiya.app.ui.components.showPasteBlocked
+import ru.prostayahimiya.app.ui.components.looksLikePaste
+import ru.prostayahimiya.app.ui.components.ProtectedFromCopy
+import ru.prostayahimiya.app.ui.components.PASTE_LIMIT_TEXT
+import ru.prostayahimiya.app.ui.components.PASTE_LIMIT_FORMULA
+import androidx.compose.ui.platform.LocalContext
 import ru.prostayahimiya.app.ui.components.EmptyBox
 import ru.prostayahimiya.app.ui.components.GradeBadge
 import ru.prostayahimiya.app.ui.components.tasksWord
@@ -96,6 +102,9 @@ fun PracticeScreen(practiceId: String, repository: Repository, onBack: () -> Uni
     )
     val solved by repository.progress.solved.collectAsState()
     val solvedCount = vm.checkableIds.count { it in solved }
+    // Ученику нельзя копировать задания и вставлять текст в ответы. У учителя ограничений нет.
+    val protect = user?.isTeacher != true
+    val context = LocalContext.current
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     var menuOpen by remember { mutableStateOf(false) }
     var confirmReset by rememberSaveable { mutableStateOf(false) }
@@ -108,103 +117,111 @@ fun PracticeScreen(practiceId: String, repository: Repository, onBack: () -> Uni
     )
     fun number(section: String) = sections.indexOf(section) + 1
 
-    Scaffold(
-        topBar = {
-            BackTopBar(
-                title = "${practice.subjectEnum.title} · ${practice.grade} класс",
-                onBack = onBack,
-                scrollBehavior = scrollBehavior,
-            ) {
-                IconButton(onClick = { menuOpen = true }) {
-                    Icon(painterResource(R.drawable.ic_more_vert), contentDescription = "Ещё")
-                }
-                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    DropdownMenuItem(
-                        text = { Text("Начать заново") },
-                        onClick = {
-                            menuOpen = false
-                            confirmReset = true
-                        },
-                    )
-                }
-            }
-        },
-        // Отступ снизу растёт вместе с клавиатурой, чтобы она не закрывала поля ввода.
-        contentWindowInsets = ScaffoldDefaults.contentWindowInsets.union(WindowInsets.ime),
-        containerColor = MaterialTheme.colorScheme.background,
-        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-    ) { padding ->
-        LazyColumn(
-            contentPadding = PaddingValues(
-                start = 16.dp,
-                end = 16.dp,
-                top = padding.calculateTopPadding() + 8.dp,
-                bottom = padding.calculateBottomPadding() + 24.dp,
-            ),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            item { ProgressHeader(practice.title, solvedCount, vm.checkableIds.size) }
-            if (sections.isEmpty()) {
-                item { EmptyBox("📝", "В этой практике пока нет заданий") }
-            }
-
-            if (vm.questions.isNotEmpty()) {
-                item {
-                    SectionHeader(
-                        "${number("questions")}. Вопросы по теории",
-                        "Ответь своими словами. Черновик сохраняется сам, а в конце сдай работу учителю.",
-                    )
-                }
-                itemsIndexed(vm.questions, key = { _, q -> q.id }) { i, question ->
-                    TaskCard("Вопрос ${i + 1}") {
-                        Text(question.text, style = MaterialTheme.typography.bodyLarge)
-                        OutlinedTextField(
-                            value = vm.answers[question.id].orEmpty(),
-                            onValueChange = { vm.onAnswerChange(question, it) },
-                            label = { Text("Твой ответ") },
-                            minLines = 3,
-                            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
-                            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+    ProtectedFromCopy(enabled = protect) {
+        Scaffold(
+            topBar = {
+                BackTopBar(
+                    title = "${practice.subjectEnum.title} · ${practice.grade} класс",
+                    onBack = onBack,
+                    scrollBehavior = scrollBehavior,
+                ) {
+                    IconButton(onClick = { menuOpen = true }) {
+                        Icon(painterResource(R.drawable.ic_more_vert), contentDescription = "Ещё")
+                    }
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Начать заново") },
+                            onClick = {
+                                menuOpen = false
+                                confirmReset = true
+                            },
                         )
                     }
                 }
-            }
+            },
+            // Отступ снизу растёт вместе с клавиатурой, чтобы она не закрывала поля ввода.
+            contentWindowInsets = ScaffoldDefaults.contentWindowInsets.union(WindowInsets.ime),
+            containerColor = MaterialTheme.colorScheme.background,
+            modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        ) { padding ->
+            LazyColumn(
+                contentPadding = PaddingValues(
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = padding.calculateTopPadding() + 8.dp,
+                    bottom = padding.calculateBottomPadding() + 24.dp,
+                ),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                item { ProgressHeader(practice.title, solvedCount, vm.checkableIds.size) }
+                if (sections.isEmpty()) {
+                    item { EmptyBox("📝", "В этой практике пока нет заданий") }
+                }
 
-            if (vm.formulas.isNotEmpty()) {
-                item {
-                    SectionHeader(
-                        "${number("formulas")}. Составь формулы по валентности",
-                        "Пиши латинскими буквами, индексы обычными цифрами: например, H2O.",
-                    )
-                }
-                itemsIndexed(vm.formulas, key = { _, t -> t.id }) { i, task ->
-                    FormulaTaskCard("${number("formulas")}.${i + 1}", task, solved = task.id in solved, vm = vm)
-                }
-            }
-
-            if (vm.equations.isNotEmpty()) {
-                item {
-                    SectionHeader(
-                        "${number("equations")}. Расставь коэффициенты",
-                        "Впиши коэффициенты в клеточки. Пустая клеточка означает коэффициент 1.",
-                    )
-                }
-                itemsIndexed(vm.equations, key = { _, t -> t.id }) { i, task ->
-                    EquationTaskCard("${number("equations")}.${i + 1}", task, solved = task.id in solved, vm = vm)
-                }
-            }
-
-            if (sections.isNotEmpty()) {
-                item {
-                    if (user?.isTeacher == true) {
-                        Text(
-                            "Так практику видят ученики. Сдавать работу учителю не нужно.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(vertical = 8.dp),
+                if (vm.questions.isNotEmpty()) {
+                    item {
+                        SectionHeader(
+                            "${number("questions")}. Вопросы по теории",
+                            "Ответь своими словами. Черновик сохраняется сам, а в конце сдай работу учителю.",
                         )
-                    } else {
-                        SubmitCard(vm, onOpenCabinet)
+                    }
+                    itemsIndexed(vm.questions, key = { _, q -> q.id }) { i, question ->
+                        TaskCard("Вопрос ${i + 1}") {
+                            Text(question.text, style = MaterialTheme.typography.bodyLarge)
+                            OutlinedTextField(
+                                value = vm.answers[question.id].orEmpty(),
+                                onValueChange = { new ->
+                                    if (protect && looksLikePaste(vm.answers[question.id].orEmpty(), new, PASTE_LIMIT_TEXT)) {
+                                        context.showPasteBlocked()
+                                    } else {
+                                        vm.onAnswerChange(question, new)
+                                    }
+                                },
+                                label = { Text("Твой ответ") },
+                                minLines = 3,
+                                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                            )
+                        }
+                    }
+                }
+
+                if (vm.formulas.isNotEmpty()) {
+                    item {
+                        SectionHeader(
+                            "${number("formulas")}. Составь формулы по валентности",
+                            "Пиши латинскими буквами, индексы обычными цифрами: например, H2O.",
+                        )
+                    }
+                    itemsIndexed(vm.formulas, key = { _, t -> t.id }) { i, task ->
+                        FormulaTaskCard("${number("formulas")}.${i + 1}", task, solved = task.id in solved, vm = vm, protect = protect)
+                    }
+                }
+
+                if (vm.equations.isNotEmpty()) {
+                    item {
+                        SectionHeader(
+                            "${number("equations")}. Расставь коэффициенты",
+                            "Впиши коэффициенты в клеточки. Пустая клеточка означает коэффициент 1.",
+                        )
+                    }
+                    itemsIndexed(vm.equations, key = { _, t -> t.id }) { i, task ->
+                        EquationTaskCard("${number("equations")}.${i + 1}", task, solved = task.id in solved, vm = vm)
+                    }
+                }
+
+                if (sections.isNotEmpty()) {
+                    item {
+                        if (user?.isTeacher == true) {
+                            Text(
+                                "Так практику видят ученики. Сдавать работу учителю не нужно.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(vertical = 8.dp),
+                            )
+                        } else {
+                            SubmitCard(vm, onOpenCabinet)
+                        }
                     }
                 }
             }
@@ -373,8 +390,9 @@ private fun SubmitCard(vm: PracticeViewModel, onOpenCabinet: () -> Unit) {
 }
 
 @Composable
-private fun FormulaTaskCard(number: String, task: Task, solved: Boolean, vm: PracticeViewModel) {
+private fun FormulaTaskCard(number: String, task: Task, solved: Boolean, vm: PracticeViewModel, protect: Boolean) {
     val input = vm.formulaInputs[task.id].orEmpty()
+    val context = LocalContext.current
     val result = vm.formulaResults[task.id]
 
     TaskCard("Задание $number", solved) {
@@ -385,7 +403,9 @@ private fun FormulaTaskCard(number: String, task: Task, solved: Boolean, vm: Pra
         )
         OutlinedTextField(
             value = input,
-            onValueChange = { vm.onFormulaChange(task, it) },
+            onValueChange = { new ->
+                if (protect && looksLikePaste(input, new, PASTE_LIMIT_FORMULA)) context.showPasteBlocked() else vm.onFormulaChange(task, new)
+            },
             label = { Text("Формула") },
             singleLine = true,
             isError = result is FormulaCheck.Wrong,
