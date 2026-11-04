@@ -49,6 +49,17 @@ data class Practice(
     /** Видна ли практика ученику этого класса. */
     fun isFor(group: String): Boolean = classes.isEmpty() || group in classes
 
+    /**
+     * Задана ли практика этому классу (для прогресса, сроков и журнала).
+     * Если учитель выбрал классы — только им. Если практика «для всех классов» — ученикам своей параллели:
+     * биология 5 класса засчитывается 5А и 5Б, но не девятиклассникам. Так же считает сайт.
+     */
+    fun isAssignedTo(group: String): Boolean {
+        if (classes.isNotEmpty()) return group in classes
+        val g = gradeOf(group)
+        return g == 0 || grade == g
+    }
+
     /** «Химия, 8 класс · Практика по химии» — так работа подписывается в кабинете. */
     val fullTitle: String get() = "${subjectEnum.title}, $grade класс · $title"
 }
@@ -217,6 +228,9 @@ data class Note(
     val grade: Int = 0,
     val text: String = "",
 )
+
+/** «9А» → 9; если класс записан без цифры — 0 (неизвестно). */
+fun gradeOf(group: String): Int = group.takeWhile { it.isDigit() }.toIntOrNull()?.takeIf { it in 1..11 } ?: 0
 
 /** Код, по которому ученики регистрируются в свой класс. */
 @Serializable

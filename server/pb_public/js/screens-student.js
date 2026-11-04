@@ -165,8 +165,13 @@
   function home() {
     const user = Api.state.user;
     // Прогресс по сданным работам: одинаковый на сайте и в приложении, на любом устройстве.
-    const totalPractices = Api.state.content.practices.length;
-    const submitted = new Set(Api.state.mySubmissions.map((s) => s.practice).filter((id) => content.practice(id))).size;
+    // Считаются только практики, заданные классу ученика (практики других параллелей не мешают).
+    const myGroup = user ? user.group : "";
+    const assigned = Api.state.content.practices.filter((p) => Content.isAssigned(p, myGroup));
+    const assignedIds = new Set(assigned.map((p) => p.id));
+    const totalPractices = assigned.length;
+    const submitted = new Set(Api.state.mySubmissions.map((s) => s.practice).filter((id) => assignedIds.has(id))).size;
+    const myGrade = Content.gradeOf(myGroup);
 
     const menuCard = (href, emoji, colorClass, title, subtitle, highlight = false) =>
       h("a", { class: "card card-link" + (highlight ? " card-highlight" : ""), href },
@@ -193,7 +198,7 @@
       user && user.isTeacher && menuCard("#/admin/works", "📋", "c-primary", "Панель учителя", "Проверка работ, оценки и задания", true),
       user && Chat.homeCard(),
       totalPractices > 0 && !(user && user.isTeacher) && h("div", { class: "card" },
-        h("div", { class: "card-title" }, submitted === totalPractices ? "Все практики сданы! 🎉" : "Твой прогресс"),
+        h("div", { class: "card-title" }, submitted === totalPractices ? "Все практики сданы! 🎉" : "Твой прогресс" + (myGrade ? ` · ${myGrade} класс` : "")),
         h("p", { class: "muted small mt" }, `Сдано ${submitted} из ${totalPractices} ${Content.practicesWord(totalPractices)}`),
         h("div", { class: "mt" }, progressBar(submitted / totalPractices))),
       !(user && user.isTeacher) && deadlinesCard(),
@@ -214,8 +219,9 @@
 
   /** «Сроки сдачи»: несданные практики со сроком, ближайшие сверху. */
   function deadlinesCard() {
+    const group = Api.state.user ? Api.state.user.group : "";
     const items = Api.state.content.practices
-      .filter((p) => Content.deadlineOf(p) && !Api.lastSubmission(p.id))
+      .filter((p) => Content.isAssigned(p, group) && Content.deadlineOf(p) && !Api.lastSubmission(p.id))
       .sort((a, b) => Content.deadlineOf(a) - Content.deadlineOf(b))
       .slice(0, 4);
     if (!items.length) return null;
@@ -233,6 +239,7 @@
   function subject(params) {
     const key = params.subject === "biology" ? "biology" : "chemistry";
     const showStatus = !(Api.state.user && Api.state.user.isTeacher);
+    const myGrade = showStatus ? Content.gradeOf(Api.state.user && Api.state.user.group) : 0;
     const practices = content.practicesOf(key);
     const colorClass = key === "biology" ? "c-biology" : "c-chemistry";
 
@@ -243,7 +250,7 @@
         h("div", { class: "row" },
           h("div", { class: `grade-circle ${colorClass}` }, String(grade)),
           h("div", { class: "grow" },
-            h("div", { class: "card-title" }, `${grade} класс`),
+            h("div", { class: "row" }, h("span", { class: "card-title" }, `${grade} класс`), grade === myGrade && h("span", { class: "pill pill-solved" }, "Твой класс")),
             list.length === 0 && h("div", { class: "card-sub" }, "Задания скоро появятся"))),
         list.map((p) => {
           const total = content.myTasks(p.id).length;
@@ -251,7 +258,7 @@
           const status = !showStatus || !last
             ? `${total} ${Content.tasksWord(total)}` + (showStatus ? " · не сдано" : "")
             : last.grade > 0 ? `Сдано · оценка ${last.grade}` : "Сдано · на проверке";
-          const due = showStatus ? Content.deadlineStatus(p, !!last) : null;
+          const due = showStatus && Content.isAssigned(p, Api.state.user.group) ? Content.deadlineStatus(p, !!last) : null;
           const forClasses = !showStatus && Array.isArray(p.classes) && p.classes.length ? "Для " + p.classes.join(", ") : null;
           const teacherDue = !showStatus && Content.deadlineOf(p) ? "до " + Content.formatDay(Content.deadlineOf(p)) : null;
           return [

@@ -106,7 +106,7 @@
   /** Практики, которые задавали этому классу (черновики не считаем). */
   function practicesFor(group) {
     return Api.state.content.practices
-      .filter((p) => p.published && (!Array.isArray(p.classes) || !p.classes.length || p.classes.includes(group)))
+      .filter((p) => p.published && Content.isAssigned(p, group))
       .sort((a, b) => a.subject.localeCompare(b.subject) || (a.grade - b.grade) || (a.position - b.position) || a.title.localeCompare(b.title));
   }
 

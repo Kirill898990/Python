@@ -700,6 +700,24 @@
     return n % 10 === 1 && n % 100 !== 11 ? "практики" : "практик";
   }
 
+  /** «9А» → 9; если класс записан без цифры — 0 (неизвестно). */
+  function gradeOf(group) {
+    const n = parseInt(String(group || ""), 10);
+    return n >= 1 && n <= 11 ? n : 0;
+  }
+
+  /**
+   * Задана ли практика этому классу (для прогресса, сроков и журнала).
+   * Если учитель выбрал классы — только им. Если практика «для всех классов» — ученикам своей параллели:
+   * биология 5 класса засчитывается 5А и 5Б, но не девятиклассникам.
+   */
+  function isAssigned(practice, group) {
+    const classes = Array.isArray(practice.classes) ? practice.classes : [];
+    if (classes.length) return classes.includes(group);
+    const grade = gradeOf(group);
+    return !grade || practice.grade === grade;
+  }
+
   /** Срок сдачи: Date или null. */
   function deadlineOf(practice) {
     if (!practice || !practice.deadline) return null;
@@ -772,6 +790,8 @@
     formatDate,
     tasksWord,
     practicesWord,
+    gradeOf,
+    isAssigned,
     deadlineOf,
     deadlineStatus,
     formatDay,

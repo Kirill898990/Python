@@ -1,5 +1,6 @@
 package ru.prostayahimiya.app.ui.subject
 
+import ru.prostayahimiya.app.data.gradeOf
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -106,6 +107,8 @@ fun SubjectScreen(
                     note = content.noteFor(subject, grade),
                     isTeacher = user?.isTeacher == true,
                     onEditNote = { editingNote = grade },
+                    isMyGrade = user?.isTeacher != true && grade == gradeOf(user?.group.orEmpty()),
+                    myGroup = user?.group.orEmpty(),
                     // Последняя сданная работа по практике (список уже отсортирован: новые сверху).
                     lastSubmission = { practice -> submissions.firstOrNull { it.practice == practice.id } },
                     showStatus = user?.isTeacher != true,
@@ -142,6 +145,8 @@ private fun GradeCard(
     isTeacher: Boolean,
     onEditNote: () -> Unit,
     onOpenPractice: (String) -> Unit,
+    isMyGrade: Boolean = false,
+    myGroup: String = "",
 ) {
     val context = LocalContext.current
     val colors = subject.colors()
@@ -161,7 +166,20 @@ private fun GradeCard(
                     }
                 }
                 Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
-                    Text("$grade класс", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("$grade класс", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        if (isMyGrade) {
+                            Spacer(Modifier.width(8.dp))
+                            Surface(shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.primaryContainer) {
+                                Text(
+                                    "Твой класс",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                )
+                            }
+                        }
+                    }
                     if (practices.isEmpty()) {
                         Text(
                             "Задания скоро появятся",
@@ -206,7 +224,7 @@ private fun GradeCard(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         if (showStatus) {
-                            practice.deadlineStatus(submitted = last != null)?.let { due ->
+                            practice.deadlineStatus(submitted = last != null)?.takeIf { practice.isAssignedTo(myGroup) }?.let { due ->
                                 Text(
                                     "⏰ ${due.text}",
                                     style = MaterialTheme.typography.bodyMedium,
