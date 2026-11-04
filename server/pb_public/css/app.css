@@ -541,6 +541,11 @@ p { margin: 0; }
 .fab-space { height: 72px; }
 .summary { background: var(--primary-container); color: var(--on-primary-container); border-radius: 12px; padding: 12px; }
 
+/* ---------- Защита от списывания (ученики) ---------- */
+.no-copy { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.no-copy input, .no-copy textarea { -webkit-user-select: text; user-select: text; }
+@media print { .no-copy { display: none; } }
+
 /* ---------- Приложение на телефон ---------- */
 .install { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }
 .install-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
