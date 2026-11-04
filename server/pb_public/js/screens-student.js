@@ -103,7 +103,8 @@
       h("h1", null, "Химия и биология"),
       h("p", { class: "muted small" }, Content.AUTHOR),
       formBox,
-      h("div", { class: "auth-install" }, installSection()));
+      h("div", { class: "auth-install" }, installSection()),
+      h("a", { class: "policy-link", href: "privacy.html" }, "Политика конфиденциальности"));
   }
 
   // ======================= Раздел «Приложение на телефон» =======================
@@ -188,7 +189,8 @@
         h("p", { class: "muted small" }, "Понравился сайт? Расскажи, что улучшить"),
         h("a", { class: "btn btn-outline", href: Content.FEEDBACK_URL, target: "_blank", rel: "noopener noreferrer" },
           icon("star", 18), h("span", null, "Оставить отзыв"))),
-      installSection());
+      installSection(),
+      h("p", { class: "center" }, h("a", { class: "policy-link", href: "privacy.html" }, "Политика конфиденциальности")));
   }
 
   // ======================= Предмет: классы и практики =======================

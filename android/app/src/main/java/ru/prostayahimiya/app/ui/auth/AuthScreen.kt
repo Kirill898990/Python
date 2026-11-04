@@ -35,6 +35,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import ru.prostayahimiya.app.ui.components.openLink
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material3.TextButton
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -61,6 +64,7 @@ fun AuthScreen(repository: Repository) {
     var error by remember { mutableStateOf<String?>(null) }
     var fieldErrors by remember { mutableStateOf(mapOf<String, String>()) }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     fun submit() {
         if (loading) return
@@ -192,6 +196,12 @@ fun AuthScreen(repository: Repository) {
                     textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                TextButton(
+                    onClick = { context.openLink(Content.PRIVACY_URL) },
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
+                ) {
+                    Text("Политика конфиденциальности", style = MaterialTheme.typography.bodySmall)
+                }
             }
         }
     }

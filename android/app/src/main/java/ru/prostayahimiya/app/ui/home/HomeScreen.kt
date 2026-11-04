@@ -27,6 +27,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -192,6 +193,9 @@ fun HomeScreen(
                             Icon(painterResource(R.drawable.ic_star), contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
                             Text("Оставить отзыв")
+                        }
+                        TextButton(onClick = { context.openLink(Content.PRIVACY_URL) }, modifier = Modifier.padding(top = 8.dp)) {
+                            Text("Политика конфиденциальности", style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }
