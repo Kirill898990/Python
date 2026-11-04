@@ -197,6 +197,7 @@ p { margin: 0; }
 /* ---------- Главный экран ---------- */
 .home-header { display: flex; align-items: center; gap: 16px; }
 .home-title { margin: 0; font-size: 22px; font-weight: 700; }
+.subtitle-row { flex-wrap: wrap; gap: 4px 8px; }
 .pill {
   display: inline-block;
   padding: 2px 10px;

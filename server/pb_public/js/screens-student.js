@@ -167,7 +167,7 @@
         emojiBadge("🔬", "c-primary", "md"),
         h("div", { class: "grow" },
           h("h1", { class: "home-title" }, "Химия и биология"),
-          h("div", { class: "row" }, h("span", { class: "muted small" }, "Теория и практика"),
+          h("div", { class: "row subtitle-row" }, h("span", { class: "muted small" }, "Теория и практика"),
             h("span", { class: "pill" }, `${Content.allGradesRange()} классы`))),
         h("button", { class: "avatar", title: "Личный кабинет", "aria-label": "Личный кабинет", onclick: () => App.go("cabinet") },
           (user && user.name ? user.name[0] : "?").toUpperCase())),
