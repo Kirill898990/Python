@@ -1,7 +1,10 @@
 package ru.prostayahimiya.app.ui.practice
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -15,13 +18,17 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -30,6 +37,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -39,6 +47,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.material3.Surface
@@ -49,14 +58,20 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -64,25 +79,46 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import ru.prostayahimiya.app.R
+import ru.prostayahimiya.app.chem.BLANK
 import ru.prostayahimiya.app.chem.Chem
-import ru.prostayahimiya.app.chem.EquationCheck
-import ru.prostayahimiya.app.chem.FormulaCheck
+import ru.prostayahimiya.app.data.CheckResult
 import ru.prostayahimiya.app.data.Repository
 import ru.prostayahimiya.app.data.Task
+import ru.prostayahimiya.app.data.TaskType
 import ru.prostayahimiya.app.data.formatServerDate
 import ru.prostayahimiya.app.ui.components.BackTopBar
-import ru.prostayahimiya.app.ui.components.showPasteBlocked
-import ru.prostayahimiya.app.ui.components.looksLikePaste
-import ru.prostayahimiya.app.ui.components.ProtectedFromCopy
-import ru.prostayahimiya.app.ui.components.PASTE_LIMIT_TEXT
-import ru.prostayahimiya.app.ui.components.PASTE_LIMIT_FORMULA
-import androidx.compose.ui.platform.LocalContext
 import ru.prostayahimiya.app.ui.components.EmptyBox
 import ru.prostayahimiya.app.ui.components.GradeBadge
+import ru.prostayahimiya.app.ui.components.PASTE_LIMIT_FORMULA
+import ru.prostayahimiya.app.ui.components.PASTE_LIMIT_WORD
+import ru.prostayahimiya.app.ui.components.PASTE_LIMIT_TEXT
+import ru.prostayahimiya.app.ui.components.ProtectedFromCopy
+import ru.prostayahimiya.app.ui.components.looksLikePaste
+import ru.prostayahimiya.app.ui.components.showPasteBlocked
 import ru.prostayahimiya.app.ui.components.tasksWord
+
+/** Заголовок и пояснение раздела для каждого вида заданий. */
+private fun TaskType.sectionTitle() = when (this) {
+    TaskType.QUESTION -> "Вопросы по теории"
+    TaskType.CHOICE -> "Тест"
+    TaskType.FILL -> "Вставь пропущенные слова"
+    TaskType.FORMULA -> "Составь формулы по валентности"
+    TaskType.MOLAR -> "Вычисли молярную массу"
+    TaskType.EQUATION -> "Расставь коэффициенты"
+}
+
+private fun TaskType.sectionCaption() = when (this) {
+    TaskType.QUESTION -> "Ответь своими словами. Черновик сохраняется сам, а в конце сдай работу учителю."
+    TaskType.CHOICE -> "Выбери верный ответ и нажми «Проверить»."
+    TaskType.FILL -> "Впиши в пропуски подходящие слова."
+    TaskType.FORMULA -> "Пиши латинскими буквами, индексы обычными цифрами: например, H2O."
+    TaskType.MOLAR -> "Ответ в г/моль. Атомные массы бери из таблицы Менделеева, хлор — 35,5."
+    TaskType.EQUATION -> "Впиши коэффициенты в клеточки. Пустая клеточка означает коэффициент 1."
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -103,18 +139,9 @@ fun PracticeScreen(practiceId: String, repository: Repository, onBack: () -> Uni
     val solved by repository.progress.solved.collectAsState()
     // Ученику нельзя копировать задания и вставлять текст в ответы. У учителя ограничений нет.
     val protect = user?.isTeacher != true
-    val context = LocalContext.current
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     var menuOpen by remember { mutableStateOf(false) }
     var confirmReset by rememberSaveable { mutableStateOf(false) }
-
-    // Номера разделов зависят от того, какие задания есть в практике.
-    val sections = listOfNotNull(
-        "questions".takeIf { vm.questions.isNotEmpty() },
-        "formulas".takeIf { vm.formulas.isNotEmpty() },
-        "equations".takeIf { vm.equations.isNotEmpty() },
-    )
-    fun number(section: String) = sections.indexOf(section) + 1
 
     ProtectedFromCopy(enabled = protect) {
         Scaffold(
@@ -153,63 +180,34 @@ fun PracticeScreen(practiceId: String, repository: Repository, onBack: () -> Uni
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 item { ProgressHeader(practice.title, vm.filledCount, vm.totalCount) }
-                if (sections.isEmpty()) {
+                if (vm.sections.isEmpty()) {
                     item { EmptyBox("📝", "В этой практике пока нет заданий") }
                 }
 
-                if (vm.questions.isNotEmpty()) {
-                    item {
-                        SectionHeader(
-                            "${number("questions")}. Вопросы по теории",
-                            "Ответь своими словами. Черновик сохраняется сам, а в конце сдай работу учителю.",
-                        )
-                    }
-                    itemsIndexed(vm.questions, key = { _, q -> q.id }) { i, question ->
-                        TaskCard("Вопрос ${i + 1}") {
-                            Text(question.text, style = MaterialTheme.typography.bodyLarge)
-                            OutlinedTextField(
-                                value = vm.answers[question.id].orEmpty(),
-                                onValueChange = { new ->
-                                    if (protect && looksLikePaste(vm.answers[question.id].orEmpty(), new, PASTE_LIMIT_TEXT)) {
-                                        context.showPasteBlocked()
-                                    } else {
-                                        vm.onAnswerChange(question, new)
+                vm.sections.forEachIndexed { sectionIndex, (type, list) ->
+                    val number = sectionIndex + 1
+                    item(key = "section-${type.key}") { SectionHeader("$number. ${type.sectionTitle()}", type.sectionCaption()) }
+                    list.forEachIndexed { i, task ->
+                        item(key = task.id) {
+                            if (type == TaskType.QUESTION) {
+                                QuestionCard("Вопрос ${i + 1}", task, vm, repository, protect)
+                            } else {
+                                CheckableCard("Задание $number.${i + 1}", task, task.id in solved, vm, repository) {
+                                    when (type) {
+                                        TaskType.CHOICE -> ChoiceContent(task, vm)
+                                        TaskType.FILL -> FillContent(task, vm, protect)
+                                        TaskType.FORMULA -> FormulaContent(task, vm, protect)
+                                        TaskType.MOLAR -> MolarContent(task, vm, protect)
+                                        TaskType.EQUATION -> EquationContent(task, vm)
+                                        TaskType.QUESTION -> Unit
                                     }
-                                },
-                                label = { Text("Твой ответ") },
-                                minLines = 3,
-                                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
-                                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-                            )
+                                }
+                            }
                         }
                     }
                 }
 
-                if (vm.formulas.isNotEmpty()) {
-                    item {
-                        SectionHeader(
-                            "${number("formulas")}. Составь формулы по валентности",
-                            "Пиши латинскими буквами, индексы обычными цифрами: например, H2O.",
-                        )
-                    }
-                    itemsIndexed(vm.formulas, key = { _, t -> t.id }) { i, task ->
-                        FormulaTaskCard("${number("formulas")}.${i + 1}", task, solved = task.id in solved, vm = vm, protect = protect)
-                    }
-                }
-
-                if (vm.equations.isNotEmpty()) {
-                    item {
-                        SectionHeader(
-                            "${number("equations")}. Расставь коэффициенты",
-                            "Впиши коэффициенты в клеточки. Пустая клеточка означает коэффициент 1.",
-                        )
-                    }
-                    itemsIndexed(vm.equations, key = { _, t -> t.id }) { i, task ->
-                        EquationTaskCard("${number("equations")}.${i + 1}", task, solved = task.id in solved, vm = vm)
-                    }
-                }
-
-                if (sections.isNotEmpty()) {
+                if (vm.sections.isNotEmpty()) {
                     item {
                         if (user?.isTeacher == true) {
                             Text(
@@ -231,7 +229,7 @@ fun PracticeScreen(practiceId: String, repository: Repository, onBack: () -> Uni
         AlertDialog(
             onDismissRequest = { confirmReset = false },
             title = { Text("Начать заново?") },
-            text = { Text("Отметки о решённых заданиях и черновики ответов по этой практике удалятся.") },
+            text = { Text("Черновики ответов и отметки о решённых заданиях по этой практике удалятся. Сданные работы останутся у учителя.") },
             confirmButton = {
                 TextButton(onClick = {
                     vm.reset()
@@ -242,6 +240,331 @@ fun PracticeScreen(practiceId: String, repository: Repository, onBack: () -> Uni
                 TextButton(onClick = { confirmReset = false }) { Text("Отмена") }
             },
         )
+    }
+}
+
+/** Картинка к заданию. Нажатие показывает её крупнее. */
+@Composable
+private fun TaskImage(task: Task, repository: Repository) {
+    if (task.image.isBlank()) return
+    val bitmap by produceState<ImageBitmap?>(null, task.id, task.image) { value = repository.taskImage(task) }
+    var zoomed by rememberSaveable(task.id) { mutableStateOf(false) }
+    val shape = RoundedCornerShape(12.dp)
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 8.dp)
+            .clip(shape)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
+            .clickable(onClickLabel = if (zoomed) "Уменьшить" else "Увеличить") { zoomed = !zoomed },
+    ) {
+        val image = bitmap
+        if (image == null) {
+            Box(Modifier.fillMaxWidth().height(160.dp), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(24.dp))
+            }
+        } else {
+            Image(
+                bitmap = image,
+                contentDescription = "Рисунок к заданию",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxWidth().heightIn(max = if (zoomed) 2000.dp else 240.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun QuestionCard(label: String, task: Task, vm: PracticeViewModel, repository: Repository, protect: Boolean) {
+    val context = LocalContext.current
+    val value = vm.input(task)
+    TaskCard(label) {
+        TaskImage(task, repository)
+        Text(task.text, style = MaterialTheme.typography.bodyLarge)
+        OutlinedTextField(
+            value = value,
+            onValueChange = { new ->
+                if (protect && looksLikePaste(value, new, PASTE_LIMIT_TEXT)) context.showPasteBlocked() else vm.onInput(task, new)
+            },
+            label = { Text("Твой ответ") },
+            minLines = 3,
+            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+        )
+    }
+}
+
+/** Карточка задания с кнопкой «Проверить». Ответ проверяет сервер. */
+@Composable
+private fun CheckableCard(
+    label: String,
+    task: Task,
+    solved: Boolean,
+    vm: PracticeViewModel,
+    repository: Repository,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    TaskCard(label, solved) {
+        TaskImage(task, repository)
+        content()
+        CheckButton(checking = vm.checking[task.id] == true) { vm.check(task) }
+        vm.results[task.id]?.let { ResultFeedback(it) }
+    }
+}
+
+@Composable
+private fun ResultFeedback(result: CheckResult) {
+    Feedback(
+        result.message.ifBlank { if (result.isCorrect) "Верно!" else "Неверно" },
+        when (result.kind) {
+            "correct" -> FeedbackKind.Success
+            "hint" -> FeedbackKind.Warning
+            else -> FeedbackKind.Error
+        },
+    )
+}
+
+@Composable
+private fun ChoiceContent(task: Task, vm: PracticeViewModel) {
+    val scheme = MaterialTheme.colorScheme
+    val chosen = vm.chosen(task)
+    Text(task.text, style = MaterialTheme.typography.bodyLarge)
+    if (task.multiple) {
+        Text(
+            "Верных ответов может быть несколько",
+            style = MaterialTheme.typography.bodySmall,
+            color = scheme.onSurfaceVariant,
+        )
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 8.dp)) {
+        task.options.forEachIndexed { k, option ->
+            val number = k + 1
+            val selected = number in chosen
+            val shape = RoundedCornerShape(12.dp)
+            val rowModifier = if (task.multiple) {
+                Modifier.toggleable(value = selected, role = Role.Checkbox) { vm.toggleChoice(task, number) }
+            } else {
+                Modifier.selectable(selected = selected, role = Role.RadioButton) { vm.toggleChoice(task, number) }
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(shape)
+                    .border(1.dp, if (selected) scheme.primary else scheme.outlineVariant, shape)
+                    .then(rowModifier)
+                    .padding(horizontal = 4.dp, vertical = 2.dp),
+            ) {
+                if (task.multiple) Checkbox(checked = selected, onCheckedChange = null, modifier = Modifier.padding(12.dp))
+                else RadioButton(selected = selected, onClick = null, modifier = Modifier.padding(12.dp))
+                Text(Chem.prettyIfFormula(option), style = MaterialTheme.typography.bodyLarge)
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun FillContent(task: Task, vm: PracticeViewModel, protect: Boolean) {
+    val context = LocalContext.current
+    val count = vm.blankCount(task)
+    val values = vm.parts(task, count)
+    val blanks = vm.results[task.id]?.blanks
+    val pieces = task.text.split(BLANK)
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        itemVerticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(vertical = 4.dp),
+    ) {
+        pieces.forEachIndexed { k, piece ->
+            // Каждое слово отдельно, чтобы текст переносился по словам, а не целыми кусками.
+            piece.split(' ').filter { it.isNotEmpty() }.forEach { word ->
+                Text(word, style = MaterialTheme.typography.bodyLarge)
+            }
+            if (k < count) {
+                BlankField(
+                    value = values[k],
+                    onValueChange = { new ->
+                        if (protect && looksLikePaste(values[k], new, PASTE_LIMIT_WORD)) {
+                            context.showPasteBlocked()
+                        } else {
+                            vm.onPart(task, k, count, new.replace("|", ""))
+                        }
+                    },
+                    description = "Пропуск ${k + 1}",
+                    correct = blanks?.getOrNull(k),
+                    isLast = k == count - 1,
+                    onDone = { vm.check(task) },
+                )
+            }
+        }
+    }
+}
+
+/** Поле для пропущенного слова: подчёркивание, которое растёт вместе с текстом. */
+@Composable
+private fun BlankField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    description: String,
+    correct: Boolean?,
+    isLast: Boolean,
+    onDone: () -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    val line = when {
+        correct == true -> colors.primary
+        correct == false -> colors.error
+        focused -> colors.primary
+        else -> colors.outline
+    }
+    val background = when (correct) {
+        true -> colors.primary.copy(alpha = 0.14f)
+        false -> colors.error.copy(alpha = 0.12f)
+        null -> colors.surfaceContainerHigh
+    }
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        singleLine = true,
+        textStyle = MaterialTheme.typography.bodyLarge.copy(color = colors.onSurface, textAlign = TextAlign.Center),
+        cursorBrush = SolidColor(colors.primary),
+        interactionSource = interaction,
+        keyboardOptions = KeyboardOptions(
+            capitalization = KeyboardCapitalization.None,
+            autoCorrectEnabled = false,
+            imeAction = if (isLast) ImeAction.Done else ImeAction.Next,
+        ),
+        keyboardActions = KeyboardActions(onDone = { onDone() }),
+        modifier = Modifier
+            .width(((value.length + 2).coerceIn(6, 22) * 11).dp)
+            .semantics { contentDescription = description },
+        decorationBox = { inner ->
+            Column {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp))
+                        .background(background)
+                        .padding(horizontal = 6.dp, vertical = 6.dp),
+                ) { inner() }
+                Box(Modifier.fillMaxWidth().height(2.dp).background(line))
+            }
+        },
+    )
+}
+
+@Composable
+private fun FormulaContent(task: Task, vm: PracticeViewModel, protect: Boolean) {
+    val context = LocalContext.current
+    val input = vm.input(task)
+    val result = vm.results[task.id]
+    Text(
+        task.text.replaceFirstChar { it.uppercase() },
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.SemiBold,
+    )
+    OutlinedTextField(
+        value = input,
+        onValueChange = { new ->
+            if (protect && looksLikePaste(input, new, PASTE_LIMIT_FORMULA)) context.showPasteBlocked() else vm.onInput(task, new)
+        },
+        label = { Text("Формула") },
+        singleLine = true,
+        isError = result?.kind == "wrong",
+        supportingText = if (input.isNotBlank()) {
+            { Text("Получается: ${Chem.pretty(Chem.normalize(input))}") }
+        } else {
+            null
+        },
+        keyboardOptions = KeyboardOptions(
+            capitalization = KeyboardCapitalization.None,
+            autoCorrectEnabled = false,
+            keyboardType = KeyboardType.Ascii,
+            imeAction = ImeAction.Done,
+        ),
+        keyboardActions = KeyboardActions(onDone = { vm.check(task) }),
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+    )
+}
+
+@Composable
+private fun MolarContent(task: Task, vm: PracticeViewModel, protect: Boolean) {
+    val context = LocalContext.current
+    val input = vm.input(task)
+    val colors = MaterialTheme.colorScheme
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 4.dp)) {
+        Text("M(${Chem.pretty(Chem.normalize(task.text))}) =", style = MaterialTheme.typography.titleLarge)
+        BasicTextField(
+            value = input,
+            onValueChange = { new ->
+                if (protect && looksLikePaste(input, new, PASTE_LIMIT_FORMULA)) {
+                    context.showPasteBlocked()
+                } else {
+                    vm.onInput(task, new.filter { it.isDigit() || it == ',' || it == '.' }.take(8))
+                }
+            },
+            singleLine = true,
+            textStyle = MaterialTheme.typography.titleLarge.copy(color = colors.onSurface, textAlign = TextAlign.Center),
+            cursorBrush = SolidColor(colors.primary),
+            interactionSource = interaction,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { vm.check(task) }),
+            modifier = Modifier
+                .size(width = 96.dp, height = 48.dp)
+                .border(
+                    width = if (focused) 2.dp else 1.dp,
+                    color = if (focused) colors.primary else colors.outline,
+                    shape = RoundedCornerShape(8.dp),
+                )
+                .semantics { contentDescription = "Молярная масса, г/моль" },
+            decorationBox = { inner -> Box(contentAlignment = Alignment.Center) { inner() } },
+        )
+        Text("г/моль", style = MaterialTheme.typography.titleMedium)
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun EquationContent(task: Task, vm: PracticeViewModel) {
+    val equation = task.equation!!
+    val count = equation.substances.size
+    val inputs = vm.parts(task, count)
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        itemVerticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(vertical = 4.dp),
+    ) {
+        equation.substances.forEachIndexed { i, formula ->
+            // Знак «+» или «→» держится вместе со следующим веществом, чтобы не отрываться при переносе.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (i > 0) {
+                    Text(
+                        if (i == equation.reactants.size) "→" else "+",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(end = 6.dp),
+                    )
+                }
+                CoefficientField(
+                    value = inputs[i],
+                    onValueChange = { vm.onPart(task, i, count, it.filter(Char::isDigit).take(2)) },
+                    description = "Коэффициент перед ${Chem.pretty(formula)}",
+                    isLast = i == equation.substances.lastIndex,
+                    onDone = { vm.check(task) },
+                )
+                Spacer(Modifier.width(4.dp))
+                Text(Chem.pretty(formula), style = MaterialTheme.typography.titleLarge)
+            }
+        }
     }
 }
 
@@ -388,106 +711,6 @@ private fun SubmitCard(vm: PracticeViewModel, onOpenCabinet: () -> Unit) {
     }
 }
 
-@Composable
-private fun FormulaTaskCard(number: String, task: Task, solved: Boolean, vm: PracticeViewModel, protect: Boolean) {
-    val input = vm.formulaInputs[task.id].orEmpty()
-    val context = LocalContext.current
-    val result = vm.formulaResults[task.id]
-
-    TaskCard("Задание $number", solved) {
-        Text(
-            task.text.replaceFirstChar { it.uppercase() },
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-        )
-        OutlinedTextField(
-            value = input,
-            onValueChange = { new ->
-                if (protect && looksLikePaste(input, new, PASTE_LIMIT_FORMULA)) context.showPasteBlocked() else vm.onFormulaChange(task, new)
-            },
-            label = { Text("Формула") },
-            singleLine = true,
-            isError = result is FormulaCheck.Wrong,
-            supportingText = if (input.isNotBlank()) {
-                { Text("Получается: ${Chem.pretty(Chem.normalize(input))}") }
-            } else {
-                null
-            },
-            keyboardOptions = KeyboardOptions(
-                capitalization = KeyboardCapitalization.None,
-                autoCorrectEnabled = false,
-                keyboardType = KeyboardType.Ascii,
-                imeAction = ImeAction.Done,
-            ),
-            keyboardActions = KeyboardActions(onDone = { vm.check(task) }),
-            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-        )
-        CheckButton(enabled = input.isNotBlank()) { vm.check(task) }
-        when (result) {
-            FormulaCheck.Correct -> Feedback("Верно! ${Chem.pretty(task.answer)}", FeedbackKind.Success)
-            is FormulaCheck.Hint -> Feedback(result.message, FeedbackKind.Warning)
-            is FormulaCheck.Wrong -> Feedback(result.message, FeedbackKind.Error)
-            null -> Unit
-        }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun EquationTaskCard(number: String, task: Task, solved: Boolean, vm: PracticeViewModel) {
-    val equation = task.equation!!
-    val inputs = vm.coefficients(task)
-    val result = vm.equationResults[task.id]
-
-    TaskCard("Задание $number", solved) {
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            itemVerticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(vertical = 4.dp),
-        ) {
-            equation.substances.forEachIndexed { i, formula ->
-                // Знак «+» или «→» держится вместе со следующим веществом, чтобы не отрываться при переносе.
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (i > 0) {
-                        Text(
-                            if (i == equation.reactants.size) "→" else "+",
-                            style = MaterialTheme.typography.titleLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(end = 6.dp),
-                        )
-                    }
-                    CoefficientField(
-                        value = inputs[i],
-                        onValueChange = { vm.onCoefficientChange(task, i, it) },
-                        description = "Коэффициент перед ${Chem.pretty(formula)}",
-                        isLast = i == equation.substances.lastIndex,
-                        onDone = { vm.check(task) },
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Text(Chem.pretty(formula), style = MaterialTheme.typography.titleLarge)
-                }
-            }
-        }
-        CheckButton(enabled = true) { vm.check(task) }
-        when (result) {
-            EquationCheck.Correct -> Feedback("Верно! ${equation.pretty(inputs.map { it.toIntOrNull() ?: 1 })}", FeedbackKind.Success)
-            is EquationCheck.NotReduced -> Feedback(
-                "Атомов поровну, но все коэффициенты делятся на ${result.divisor}. Нужны самые маленькие.",
-                FeedbackKind.Warning,
-            )
-            is EquationCheck.Unbalanced -> Feedback(
-                "Пока не сходится:\n" + result.mismatches.joinToString("\n") {
-                    "• ${it.element}: слева ${it.left}, справа ${it.right}"
-                },
-                FeedbackKind.Error,
-            )
-            is EquationCheck.Invalid -> Feedback(result.message, FeedbackKind.Warning)
-            null -> Unit
-        }
-    }
-}
-
 /** Маленькая клеточка для коэффициента. */
 @Composable
 private fun CoefficientField(
@@ -526,8 +749,16 @@ private fun CoefficientField(
 
 /** Кнопка «Проверить». Подсказок и готовых ответов нет: ученик решает сам. */
 @Composable
-private fun CheckButton(enabled: Boolean, onCheck: () -> Unit) {
-    Button(onClick = onCheck, enabled = enabled, modifier = Modifier.padding(top = 8.dp)) { Text("Проверить") }
+private fun CheckButton(checking: Boolean, onCheck: () -> Unit) {
+    Button(onClick = onCheck, enabled = !checking, modifier = Modifier.padding(top = 8.dp)) {
+        if (checking) {
+            CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(18.dp), color = MaterialTheme.colorScheme.onPrimary)
+            Spacer(Modifier.width(10.dp))
+            Text("Проверяем…")
+        } else {
+            Text("Проверить")
+        }
+    }
 }
 
 private enum class FeedbackKind { Success, Warning, Error }

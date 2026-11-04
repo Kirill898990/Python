@@ -29,17 +29,9 @@ class ProgressStore(context: Context, userId: String) {
         _solved.value -= taskIds.toSet()
         prefs.edit {
             putStringSet(KEY_SOLVED, _solved.value)
-            taskIds.forEach {
-                remove(KEY_DRAFT + it)
-                remove(KEY_ATTEMPTS + it)
-            }
+            taskIds.forEach { remove(KEY_DRAFT + it) }
         }
     }
-
-    /** Сколько раз ученик проверял задание. */
-    fun attempts(taskId: String): Int = prefs.getInt(KEY_ATTEMPTS + taskId, 0)
-
-    fun addAttempt(taskId: String) = prefs.edit { putInt(KEY_ATTEMPTS + taskId, attempts(taskId) + 1) }
 
     fun draft(taskId: String): String = prefs.getString(KEY_DRAFT + taskId, "").orEmpty()
 
@@ -48,6 +40,5 @@ class ProgressStore(context: Context, userId: String) {
     private companion object {
         const val KEY_SOLVED = "solved"
         const val KEY_DRAFT = "draft_"
-        const val KEY_ATTEMPTS = "attempts_"
     }
 }

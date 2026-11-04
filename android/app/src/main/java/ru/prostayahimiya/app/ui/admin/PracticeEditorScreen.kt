@@ -1,5 +1,11 @@
 package ru.prostayahimiya.app.ui.admin
 
+import android.graphics.BitmapFactory
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -8,6 +14,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -15,15 +22,18 @@ import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -42,21 +52,36 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import ru.prostayahimiya.app.R
 import ru.prostayahimiya.app.chem.Chem
 import ru.prostayahimiya.app.chem.Equation
+import ru.prostayahimiya.app.chem.joinBlanks
+import ru.prostayahimiya.app.chem.parseChoice
+import ru.prostayahimiya.app.chem.splitBlanks
 import ru.prostayahimiya.app.chem.validateTask
 import ru.prostayahimiya.app.data.Practice
 import ru.prostayahimiya.app.data.Repository
@@ -248,10 +273,16 @@ fun PracticeEditorScreen(practiceId: String, repository: Repository, onBack: () 
     editing?.let { task ->
         TaskEditorDialog(
             task = task,
+            repository = repository,
             onDismiss = { editing = null },
-            onSave = { updated ->
+            onSave = { updated, image ->
                 serverAction(if (task.id.isEmpty()) "Задание добавлено" else "Задание сохранено") {
-                    repository.saveTask(updated)
+                    val saved = repository.saveTask(updated)
+                    when (image) {
+                        is ImageChange.Set -> repository.setTaskImage(saved.id, image.uri)
+                        ImageChange.Remove -> if (task.image.isNotBlank()) repository.setTaskImage(saved.id, null)
+                        ImageChange.Keep -> Unit
+                    }
                     editing = null
                 }
             },
@@ -294,15 +325,38 @@ fun PracticeEditorScreen(practiceId: String, repository: Repository, onBack: () 
 
 private fun TaskType.shortTitle() = when (this) {
     TaskType.QUESTION -> "Вопрос"
+    TaskType.CHOICE -> "Тест"
+    TaskType.FILL -> "Пропуски"
     TaskType.FORMULA -> "Формула"
+    TaskType.MOLAR -> "Молярная масса"
     TaskType.EQUATION -> "Уравнение"
 }
 
 private fun TaskType.emoji() = when (this) {
     TaskType.QUESTION -> "❓"
+    TaskType.CHOICE -> "☑️"
+    TaskType.FILL -> "✏️"
     TaskType.FORMULA -> "🧪"
+    TaskType.MOLAR -> "🧮"
     TaskType.EQUATION -> "⚖️"
 }
+
+/** Что сделать с картинкой задания при сохранении. */
+private sealed interface ImageChange {
+    data object Keep : ImageChange
+    data object Remove : ImageChange
+    data class Set(val uri: Uri) : ImageChange
+}
+
+/** Правильный ответ задания, как его показать учителю в списке. */
+private fun Task.answerSummary(): String? = when (taskType) {
+    TaskType.QUESTION -> null
+    TaskType.FORMULA -> Chem.pretty(answer)
+    TaskType.EQUATION -> equation?.pretty(coefficients) ?: answer
+    TaskType.CHOICE -> parseChoice(answer).mapNotNull { options.getOrNull(it - 1) }.joinToString("; ") { Chem.prettyIfFormula(it) }
+    TaskType.FILL -> answer.split('|').joinToString("; ")
+    TaskType.MOLAR -> (Chem.molarMass(text) as? Chem.MolarResult.Ok)?.let { "${Chem.formatNumber(it.value)} г/моль" }
+}?.takeIf { it.isNotBlank() }
 
 @Composable
 private fun TaskRow(
@@ -326,21 +380,25 @@ private fun TaskRow(
                 Text(
                     when (task.taskType) {
                         TaskType.EQUATION -> task.equation?.pretty() ?: task.text
+                        TaskType.MOLAR -> "M(${Chem.pretty(task.text)})"
                         else -> task.text
                     },
                     style = MaterialTheme.typography.bodyLarge,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (task.taskType != TaskType.QUESTION) {
+                if (task.taskType == TaskType.CHOICE) {
                     Text(
-                        "Ответ: " + when (task.taskType) {
-                            TaskType.FORMULA -> Chem.pretty(task.answer)
-                            else -> task.equation?.pretty(task.coefficients) ?: task.answer
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.primary,
+                        task.options.mapIndexed { k, o -> "${k + 1}) ${Chem.prettyIfFormula(o)}" }.joinToString("   "),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+                task.answerSummary()?.let {
+                    Text("Ответ: $it", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                }
+                if (task.image.isNotBlank()) {
+                    Text("🖼️ С картинкой", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             Column {
@@ -354,11 +412,28 @@ private fun TaskRow(
 
 /** Окно добавления и изменения задания. Ответ проверяется сразу, чтобы в задание не попала ошибка. */
 @Composable
-private fun TaskEditorDialog(task: Task, onDismiss: () -> Unit, onSave: (Task) -> Unit) {
+private fun TaskEditorDialog(task: Task, repository: Repository, onDismiss: () -> Unit, onSave: (Task, ImageChange) -> Unit) {
     val type = task.taskType
-    var text by rememberSaveable(task.id) { mutableStateOf(task.text) }
+    // Для пропусков учитель пишет текст с правильными словами в квадратных скобках.
+    var text by rememberSaveable(task.id) { mutableStateOf(if (type == TaskType.FILL && task.id.isNotEmpty()) joinBlanks(task.text, task.answer) else task.text) }
     var answer by rememberSaveable(task.id) { mutableStateOf(task.answer) }
-    val error = validateTask(type.key, text, answer)
+    val options = remember(task.id) { mutableStateListOf(*(task.options.ifEmpty { listOf("", "") }).toTypedArray()) }
+    val correct = remember(task.id) { mutableStateListOf(*parseChoice(task.answer).toTypedArray()) }
+    var image by remember(task.id) { mutableStateOf<ImageChange>(ImageChange.Keep) }
+    val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) image = ImageChange.Set(uri)
+    }
+
+    /** Задание в том виде, в каком оно сохранится: текст, ответ, варианты. */
+    fun current(): Triple<String, String, List<String>> = when (type) {
+        TaskType.FILL -> splitBlanks(text).let { (t, a) -> Triple(t, a, emptyList()) }
+        TaskType.CHOICE -> Triple(text, correct.sorted().joinToString(","), options.map { it.trim() })
+        TaskType.MOLAR, TaskType.QUESTION -> Triple(text, "", emptyList())
+        else -> Triple(text, answer, emptyList())
+    }
+    val (savedText, savedAnswer, savedOptions) = current()
+    val error = validateTask(type.key, savedText, savedAnswer, savedOptions)
+    val touched = text.isNotBlank() || answer.isNotBlank() || options.any { it.isNotBlank() }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -369,12 +444,42 @@ private fun TaskEditorDialog(task: Task, onDismiss: () -> Unit, onSave: (Task) -
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 when (type) {
-                    TaskType.QUESTION -> OutlinedTextField(
+                    TaskType.QUESTION, TaskType.CHOICE -> OutlinedTextField(
                         value = text,
                         onValueChange = { text = it },
-                        label = { Text("Текст вопроса") },
+                        label = { Text(if (type == TaskType.QUESTION) "Текст вопроса" else "Вопрос") },
+                        minLines = if (type == TaskType.QUESTION) 3 else 2,
+                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    TaskType.FILL -> OutlinedTextField(
+                        value = text,
+                        onValueChange = { text = it },
+                        label = { Text("Текст с пропусками") },
+                        placeholder = { Text("Вода состоит из [водорода] и [кислорода].") },
+                        supportingText = {
+                            Text(
+                                if (error == null && text.isNotBlank()) "Ученик увидит: $savedText"
+                                else "Правильные слова пишите в квадратных скобках. Несколько вариантов — через «/»: [водорода/H].",
+                            )
+                        },
                         minLines = 3,
                         keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    TaskType.MOLAR -> OutlinedTextField(
+                        value = text,
+                        onValueChange = { text = it },
+                        label = { Text("Формула вещества") },
+                        placeholder = { Text("H2SO4") },
+                        supportingText = {
+                            val m = Chem.molarMass(text)
+                            if (text.isNotBlank() && m is Chem.MolarResult.Ok) {
+                                Text("Получается: M(${Chem.pretty(Chem.normalize(text))}) = ${Chem.formatNumber(m.value)} г/моль")
+                            }
+                        },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, autoCorrectEnabled = false),
                         modifier = Modifier.fillMaxWidth(),
                     )
                     TaskType.FORMULA -> {
@@ -427,7 +532,53 @@ private fun TaskEditorDialog(task: Task, onDismiss: () -> Unit, onSave: (Task) -
                         )
                     }
                 }
-                if (error != null && (text.isNotBlank() || answer.isNotBlank())) {
+
+                if (type == TaskType.CHOICE) {
+                    Text("Варианты ответа — отметьте галочкой верные", style = MaterialTheme.typography.labelLarge)
+                    options.forEachIndexed { k, option ->
+                        val number = k + 1
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(
+                                checked = number in correct,
+                                onCheckedChange = { on -> if (on) correct.add(number) else correct.remove(number) },
+                                modifier = Modifier.semantics { contentDescription = "Вариант $number верный" },
+                            )
+                            OutlinedTextField(
+                                value = option,
+                                onValueChange = { options[k] = it },
+                                placeholder = { Text("Вариант $number") },
+                                singleLine = true,
+                                modifier = Modifier.weight(1f),
+                            )
+                            IconButton(
+                                enabled = options.size > 2,
+                                onClick = {
+                                    options.removeAt(k)
+                                    val shifted = correct.filter { it != number }.map { if (it > number) it - 1 else it }
+                                    correct.clear()
+                                    correct.addAll(shifted)
+                                },
+                            ) {
+                                Icon(painterResource(R.drawable.ic_delete), contentDescription = "Удалить вариант $number")
+                            }
+                        }
+                    }
+                    if (options.size < 8) {
+                        TextButton(onClick = { options.add("") }) { Text("+ Вариант") }
+                    }
+                }
+
+                Text("Картинка (необязательно)", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 4.dp))
+                val hasImage = image is ImageChange.Set || (image == ImageChange.Keep && task.image.isNotBlank())
+                if (hasImage) ImagePreview(task, (image as? ImageChange.Set)?.uri, repository)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = {
+                        pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    }) { Text(if (hasImage) "Заменить картинку" else "Добавить картинку") }
+                    if (hasImage) TextButton(onClick = { image = ImageChange.Remove }) { Text("Убрать") }
+                }
+
+                if (error != null && touched) {
                     Text("⚠️ $error", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
                 }
             }
@@ -435,17 +586,54 @@ private fun TaskEditorDialog(task: Task, onDismiss: () -> Unit, onSave: (Task) -
         confirmButton = {
             TextButton(
                 enabled = error == null,
-                onClick = { onSave(task.copy(text = text, answer = answer, hint = "").normalized()) },
+                onClick = {
+                    val updated = task.copy(
+                        text = savedText,
+                        answer = savedAnswer,
+                        options = savedOptions,
+                        multiple = type == TaskType.CHOICE && correct.size > 1,
+                        hint = "",
+                    ).normalized()
+                    onSave(updated, image)
+                },
             ) { Text("Сохранить") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
     )
 }
 
+/** Маленький предпросмотр картинки: новой (из галереи) или уже загруженной. */
+@Composable
+private fun ImagePreview(task: Task, uri: Uri?, repository: Repository) {
+    val context = LocalContext.current
+    val bitmap by produceState<ImageBitmap?>(null, uri, task.image) {
+        value = if (uri != null) {
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    context.contentResolver.openInputStream(uri)?.use {
+                        BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = 4 })
+                    }?.asImageBitmap()
+                }.getOrNull()
+            }
+        } else {
+            repository.taskImage(task)
+        }
+    }
+    bitmap?.let {
+        Image(
+            bitmap = it,
+            contentDescription = "Картинка к заданию",
+            modifier = Modifier.heightIn(max = 120.dp).clip(RoundedCornerShape(8.dp)),
+        )
+    }
+}
+
 /** Приводит задание к единому виду перед сохранением: «al + o2 -> al2o3» не пройдёт проверку, а «Al+O2→Al2O3» станет «Al + O2 = Al2O3». */
 private fun Task.normalized(): Task = when (taskType) {
     TaskType.QUESTION -> copy(answer = "", hint = "")
     TaskType.FORMULA -> copy(answer = Chem.normalize(answer))
+    TaskType.MOLAR -> copy(text = Chem.normalize(text), answer = "")
+    TaskType.CHOICE, TaskType.FILL -> this
     TaskType.EQUATION -> {
         val equation = Equation.parse(text)
         copy(

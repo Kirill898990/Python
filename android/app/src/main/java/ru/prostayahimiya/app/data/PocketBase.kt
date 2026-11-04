@@ -10,8 +10,10 @@ import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import ru.prostayahimiya.app.BuildConfig
 import java.io.IOException
@@ -34,10 +36,39 @@ class PocketBase(private val baseUrl: String, private val token: () -> String?) 
     /** null, если адрес сервера в app/build.gradle.kts записан с ошибкой. */
     private val base: HttpUrl? = baseUrl.trimEnd('/').toHttpUrlOrNull()
 
-    private val client = OkHttpClient.Builder()
+    val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
+        // По этому имени сервер понимает, что приложение новое и правильные ответы ему присылать не нужно.
+        .addInterceptor { chain ->
+            chain.proceed(chain.request().newBuilder().header("User-Agent", USER_AGENT).build())
+        }
         .build()
+
+    /** Загрузить файл в поле записи (картинку к заданию). */
+    suspend fun <T> upload(
+        method: String,
+        url: HttpUrl,
+        serializer: KSerializer<T>,
+        field: String,
+        fileName: String,
+        bytes: ByteArray,
+        mimeType: String,
+    ): T {
+        val body = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart(field, fileName, bytes.toRequestBody(mimeType.toMediaType()))
+            .build()
+        return json.decodeFromString(serializer, execute(method, url, body))
+    }
+
+    /** Абсолютный адрес файла на сервере (картинки задания). thumb — уменьшенная копия, например «800x0». */
+    fun fileUrl(collection: String, recordId: String, fileName: String, thumb: String? = null): String? =
+        base?.newBuilder()
+            ?.addPathSegments("api/files/$collection/$recordId")
+            ?.addPathSegment(fileName)
+            ?.apply { thumb?.let { addQueryParameter("thumb", it) } }
+            ?.build()?.toString()
 
     val json = Json {
         ignoreUnknownKeys = true
@@ -88,13 +119,16 @@ class PocketBase(private val baseUrl: String, private val token: () -> String?) 
         return result
     }
 
-    private suspend fun raw(method: String, url: HttpUrl, body: JsonObject?): String = withContext(Dispatchers.IO) {
+    private suspend fun raw(method: String, url: HttpUrl, body: JsonObject?): String {
         val requestBody = when {
             body != null -> json.encodeToString(JsonObject.serializer(), body)
             method == "POST" || method == "PATCH" -> "{}"
             else -> null
         }?.toRequestBody("application/json; charset=utf-8".toMediaType())
+        return execute(method, url, requestBody)
+    }
 
+    private suspend fun execute(method: String, url: HttpUrl, requestBody: RequestBody?): String = withContext(Dispatchers.IO) {
         val request = Request.Builder()
             .url(url)
             .method(method, requestBody)
@@ -152,3 +186,6 @@ class PocketBase(private val baseUrl: String, private val token: () -> String?) 
         else -> "Проверь поле «$field»"
     }
 }
+
+/** Имя приложения в запросах к серверу: «ProstayaHimiya-Android/1.1». */
+private val USER_AGENT = "ProstayaHimiya-Android/${BuildConfig.VERSION_NAME}"

@@ -290,7 +290,8 @@
     root.addEventListener("input", (e) => {
       const el = e.target;
       if (!isField(el)) return;
-      const limit = el.tagName === "TEXTAREA" ? 30 : 6;
+      // Пропущенное слово клавиатура может подставить целиком из подсказок — для него предел больше.
+      const limit = el.tagName === "TEXTAREA" ? 30 : el.classList.contains("blank") ? 12 : 6;
       if (last.has(el) && el.value.length - last.get(el).length > limit) {
         el.value = last.get(el);
         e.stopImmediatePropagation();

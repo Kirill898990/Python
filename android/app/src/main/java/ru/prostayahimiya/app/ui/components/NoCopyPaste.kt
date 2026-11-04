@@ -36,6 +36,9 @@ import androidx.compose.ui.text.AnnotatedString
 const val PASTE_LIMIT_TEXT = 30
 const val PASTE_LIMIT_FORMULA = 6
 
+/** Пропущенное слово: клавиатура может вставить подсказанное слово целиком, это не вставка из буфера. */
+const val PASTE_LIMIT_WORD = 12
+
 /** Похоже ли изменение текста на вставку: за один раз добавилось больше [limit] символов. */
 fun looksLikePaste(old: String, new: String, limit: Int): Boolean = new.length - old.length > limit
 

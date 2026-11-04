@@ -1,16 +1,33 @@
 package ru.prostayahimiya.app.data
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Color
+import android.net.Uri
+import android.util.LruCache
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.core.content.edit
+import androidx.core.graphics.createBitmap
+import androidx.core.graphics.scale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.encodeToJsonElement
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.put
+import okhttp3.Request
 import ru.prostayahimiya.app.BuildConfig
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.time.Instant
 
@@ -123,6 +140,91 @@ class Repository(private val context: Context) {
         false
     }
 
+    // ---------- Проверка ответов ----------
+
+    /**
+     * Проверить ответ на сервере: правильных ответов у ученика на телефоне нет.
+     * Сервер же считает попытки, их потом видит учитель.
+     */
+    suspend fun check(task: Task, input: String): CheckResult = guard {
+        val response = api.call(
+            "POST",
+            api.url("api/check"),
+            CheckResponse.serializer(),
+            buildJsonObject {
+                put("items", buildJsonArray {
+                    add(buildJsonObject {
+                        put("task", task.id)
+                        put("input", input)
+                    })
+                })
+            },
+        )
+        response.results.firstOrNull() ?: CheckResult(task.id, "error", "Сервер не ответил на проверку")
+    }.getOrThrow()
+
+    // ---------- Картинки к заданиям ----------
+
+    private val imageCache = LruCache<String, ImageBitmap>(24)
+
+    /** Картинка задания (уменьшенная копия с сервера). null — картинки нет или нет связи. */
+    suspend fun taskImage(task: Task): ImageBitmap? {
+        if (task.image.isBlank()) return null
+        val url = api.fileUrl("tasks", task.id, task.image, "800x0") ?: return null
+        imageCache.get(url)?.let { return it }
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                api.client.newCall(Request.Builder().url(url).build()).execute().use { response ->
+                    if (!response.isSuccessful) null else BitmapFactory.decodeStream(response.body.byteStream())?.asImageBitmap()
+                }
+            }.getOrNull()
+        }?.also { imageCache.put(url, it) }
+    }
+
+    /** Загрузить картинку к заданию (uri — фото из галереи) или убрать её (uri = null). */
+    suspend fun setTaskImage(taskId: String, uri: Uri?): Task = guard {
+        val saved = if (uri == null) {
+            api.call(
+                "PATCH",
+                api.url("api/collections/tasks/records/$taskId"),
+                Task.serializer(),
+                buildJsonObject { put("image", JsonNull) },
+            )
+        } else {
+            val bytes = withContext(Dispatchers.IO) { prepareImage(uri) }
+                ?: throw ApiException("Не получилось открыть картинку")
+            api.upload("PATCH", api.url("api/collections/tasks/records/$taskId"), Task.serializer(), "image", "image.jpg", bytes, "image/jpeg")
+        }
+        _content.value = _content.value.copy(tasks = _content.value.tasks.filter { it.id != saved.id } + saved)
+        saved
+    }.getOrThrow()
+
+    /** Большие фото с телефона уменьшаем до 1600 точек по длинной стороне и сжимаем в JPEG. */
+    private fun prepareImage(uri: Uri): ByteArray? {
+        val resolver = context.contentResolver
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        var sample = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= MAX_IMAGE_SIDE) sample *= 2
+        val decoded = resolver.openInputStream(uri)?.use {
+            BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample })
+        } ?: return null
+        val scale = minOf(1f, MAX_IMAGE_SIDE.toFloat() / maxOf(decoded.width, decoded.height))
+        val width = (decoded.width * scale).toInt().coerceAtLeast(1)
+        val height = (decoded.height * scale).toInt().coerceAtLeast(1)
+        // Белый фон: у PNG с прозрачностью иначе получится чёрный.
+        val result = createBitmap(width, height)
+        Canvas(result).apply {
+            drawColor(Color.WHITE)
+            drawBitmap(decoded.scale(width, height), 0f, 0f, null)
+        }
+        return ByteArrayOutputStream().use { out ->
+            result.compress(Bitmap.CompressFormat.JPEG, 85, out)
+            out.toByteArray()
+        }
+    }
+
     // ---------- Работы учеников ----------
 
     /** Обновляет список сданных работ ученика. Без интернета оставляет прежний. */
@@ -218,8 +320,10 @@ class Repository(private val context: Context) {
             put("type", task.type)
             put("position", task.position)
             put("text", task.text.trim())
-            put("answer", task.answer.trim())
-            put("hint", task.hint.trim())
+            // Правильный ответ скрыт от учеников, поэтому сервер принимает его в поле answerText.
+            put("answerText", task.answer.trim())
+            put("options", buildJsonArray { task.options.forEach { add(it.trim()) } })
+            put("multiple", task.multiple)
         }
         val saved = save("tasks", task.id, body, Task.serializer())
         _content.value = _content.value.copy(tasks = _content.value.tasks.filter { it.id != saved.id } + saved)
@@ -417,6 +521,7 @@ class Repository(private val context: Context) {
     private fun normalizeUsername(value: String) = value.trim().lowercase()
 
     private companion object {
+        const val MAX_IMAGE_SIDE = 1600
         const val KEY_TOKEN = "token"
         const val KEY_USER = "user"
     }
