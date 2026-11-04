@@ -44,9 +44,13 @@ data class Practice(
     val fullTitle: String get() = "${subjectEnum.title}, $grade класс · $title"
 }
 
+/** Виды заданий в том порядке, в каком разделы идут в практике. */
 enum class TaskType(val key: String, val title: String) {
     QUESTION("question", "Вопрос по теории"),
+    CHOICE("choice", "Тест"),
+    FILL("fill", "Вставь пропущенные слова"),
     FORMULA("formula", "Составь формулу"),
+    MOLAR("molar", "Молярная масса"),
     EQUATION("equation", "Расставь коэффициенты"),
     ;
 
@@ -61,15 +65,24 @@ data class Task(
     val practice: String = "",
     val type: String = TaskType.QUESTION.key,
     val position: Int = 0,
-    /** Вопрос, название вещества или уравнение без коэффициентов. */
+    /** Вопрос, название вещества, уравнение без коэффициентов, текст с пропусками «___» или формула для молярной массы. */
     val text: String = "",
-    /** Формула («Ca(OH)2») или коэффициенты («4 3 2»). У вопроса пусто. */
+    /**
+     * Правильный ответ. Его видит только учитель: ученику сервер ответы не присылает
+     * и проверяет их сам (server/pb_hooks).
+     */
     val answer: String = "",
     val hint: String = "",
+    /** Варианты ответа в тесте. */
+    val options: List<String> = emptyList(),
+    /** В тесте несколько верных ответов (галочки вместо кружков). */
+    val multiple: Boolean = false,
+    /** Имя файла картинки к заданию или пусто. */
+    val image: String = "",
 ) {
     val taskType: TaskType get() = TaskType.fromKey(type)
 
-    /** Задания, которые приложение проверяет само. */
+    /** Задания с автопроверкой (её делает сервер). */
     val isCheckable: Boolean get() = taskType != TaskType.QUESTION
 
     val equation: Equation? get() = if (taskType == TaskType.EQUATION) Equation.parse(text) else null
@@ -89,11 +102,31 @@ data class AnswerItem(
     val kind: String,
     val prompt: String,
     val answer: String,
-    /** Для заданий с автопроверкой: решено ли верно. Для вопросов null. */
+    /** Для заданий с автопроверкой: решено ли верно (считает сервер). Для вопросов null. */
     val correct: Boolean? = null,
-    /** Сколько раз ученик нажимал «Проверить» (видит учитель). */
+    /** Сколько раз ученик нажимал «Проверить» (считает сервер, видит учитель). */
     val attempts: Int? = null,
+    /** id задания: по нему сервер перепроверяет ответ. */
+    val task: String? = null,
+    /** То, что ввёл ученик, как есть (для уравнения «4|3|2», для теста «1,3», для пропусков «слово|слово»). */
+    val input: String? = null,
 )
+
+/** Ответ сервера на «Проверить». kind: correct, hint (почти), wrong или error. */
+@Serializable
+data class CheckResult(
+    val task: String = "",
+    val kind: String = "error",
+    val message: String = "",
+    /** Для пропусков: какие заполнены верно. */
+    val blanks: List<Boolean>? = null,
+    val attempts: Int = 0,
+) {
+    val isCorrect: Boolean get() = kind == "correct"
+}
+
+@Serializable
+data class CheckResponse(val results: List<CheckResult> = emptyList())
 
 @Serializable
 data class Submission(

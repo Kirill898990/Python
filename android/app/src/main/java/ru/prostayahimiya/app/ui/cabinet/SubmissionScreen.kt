@@ -253,6 +253,9 @@ private fun AnswerCard(answer: AnswerItem, questionNumber: Int?) {
     val title = when (answer.kind) {
         "question" -> "Вопрос $questionNumber"
         "formula" -> "Формула: ${answer.prompt}"
+        "choice" -> "Тест"
+        "fill" -> "Пропущенные слова"
+        "molar" -> "Молярная масса"
         else -> "Уравнение"
     }
     Card(colors = cardColors(), border = cardBorder()) {

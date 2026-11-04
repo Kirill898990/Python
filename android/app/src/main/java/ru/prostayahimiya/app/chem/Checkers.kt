@@ -107,13 +107,16 @@ private tailrec fun gcd(a: Int, b: Int): Int = if (b == 0) a else gcd(b, a % b)
 
 /**
  * Проверяет задание, которое учитель создаёт в панели учителя.
- * Возвращает текст ошибки или null, если всё правильно.
+ * Возвращает текст ошибки или null, если всё правильно. Для пропусков text и answer уже разделены [splitBlanks].
  */
-fun validateTask(type: String, text: String, answer: String): String? {
+fun validateTask(type: String, text: String, answer: String, options: List<String> = emptyList()): String? {
     if (text.isBlank()) {
         return when (type) {
             "formula" -> "Впиши название вещества"
             "equation" -> "Впиши уравнение"
+            "molar" -> "Впиши формулу вещества"
+            "fill" -> "Впиши текст с пропусками"
+            "choice" -> "Впиши вопрос"
             else -> "Впиши текст вопроса"
         }
     }
@@ -123,6 +126,27 @@ fun validateTask(type: String, text: String, answer: String): String? {
             is Chem.ParseResult.Ok -> null
         }
         "equation" -> validateEquation(text, answer)
+        "molar" -> (Chem.molarMass(text) as? Chem.MolarResult.Error)?.let { "Формула: ${it.message}" }
+        "fill" -> {
+            val n = blankCount(text)
+            val answers = answer.split('|')
+            when {
+                n == 0 -> "Отметь пропуски: напиши правильные слова в квадратных скобках, например [кислорода]"
+                answers.size != n || answers.any { it.isBlank() } -> "В каждых квадратных скобках должно быть слово"
+                else -> null
+            }
+        }
+        "choice" -> {
+            val list = options.map { it.trim() }
+            val right = parseChoice(answer)
+            when {
+                list.count { it.isNotEmpty() } < 2 -> "Нужно хотя бы два варианта ответа"
+                list.any { it.isEmpty() } -> "Заполни все варианты или удали пустые"
+                right.isEmpty() -> "Отметь галочкой хотя бы один верный ответ"
+                right.any { it > list.size } -> "Верный ответ указан неправильно"
+                else -> null
+            }
+        }
         else -> null
     }
 }
