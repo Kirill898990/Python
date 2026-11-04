@@ -244,6 +244,10 @@ data class ClassCode(
 @Serializable
 data class RegistrationInfo(val codeRequired: Boolean = false)
 
+/** Версия приложения, выложенная на сайте (урокискириллом.рф/app). */
+@Serializable
+data class AppRelease(val versionCode: Int = 0, val versionName: String = "", val notes: String = "")
+
 /** Что написать про срок сдачи: текст и прошёл ли срок. */
 data class DeadlineStatus(val text: String, val overdue: Boolean)
 

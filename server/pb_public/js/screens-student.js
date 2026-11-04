@@ -158,7 +158,8 @@
 
     return h("section", { class: "install", "aria-label": "Приложение на телефон" },
       sectionLabel("Приложение на телефон"),
-      h("div", { class: "install-grid" }, android, iphone));
+      h("div", { class: "install-grid" }, android, iphone),
+      h("a", { class: "btn btn-outline install-more", href: "app/" }, h("span", null, "Скачать приложение и узнать больше →")));
   }
 
   // ======================= Главная =======================
