@@ -158,7 +158,7 @@ private fun Summary(submissions: List<Submission>) {
 
 /** Карточка сданной работы. Используется и в кабинете, и в панели учителя. */
 @Composable
-fun SubmissionCard(submission: Submission, showStudent: Boolean, onClick: () -> Unit) {
+fun SubmissionCard(submission: Submission, showStudent: Boolean, late: Boolean = false, onClick: () -> Unit) {
     Card(onClick = onClick, colors = cardColors(), border = cardBorder()) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(16.dp)) {
             Column(Modifier.weight(1f).padding(end = 12.dp)) {
@@ -185,6 +185,9 @@ fun SubmissionCard(submission: Submission, showStudent: Boolean, onClick: () -> 
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                if (late) {
+                    Text("⏰ с опозданием", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
+                }
             }
             GradeBadge(submission.grade)
         }

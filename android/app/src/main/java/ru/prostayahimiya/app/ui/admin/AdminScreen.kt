@@ -1,5 +1,7 @@
 package ru.prostayahimiya.app.ui.admin
 
+import ru.prostayahimiya.app.data.classesOf
+import ru.prostayahimiya.app.data.isLate
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -80,14 +82,14 @@ fun AdminScreen(
             Column {
                 BackTopBar("Панель учителя", onBack)
                 PrimaryTabRow(selectedTabIndex = tab, containerColor = MaterialTheme.colorScheme.background) {
-                    listOf("Работы", "Задания", "Ученики").forEachIndexed { index, title ->
+                    listOf("Работы", "Журнал", "Задания", "Ученики").forEachIndexed { index, title ->
                         Tab(selected = tab == index, onClick = { tab = index }, text = { Text(title) })
                     }
                 }
             }
         },
         floatingActionButton = {
-            if (tab == 1) {
+            if (tab == 2) {
                 ExtendedFloatingActionButton(onClick = { onEditPractice(NEW) }) { Text("+ Новая практика") }
             }
         },
@@ -98,7 +100,8 @@ fun AdminScreen(
         val bottom = padding.calculateBottomPadding()
         when (tab) {
             0 -> WorksTab(repository, onOpenSubmission, modifier, bottom)
-            1 -> PracticesTab(repository, onEditPractice, modifier, bottom)
+            1 -> JournalTab(repository, snackbar, onOpenSubmission, modifier, bottom)
+            2 -> PracticesTab(repository, onEditPractice, modifier, bottom)
             else -> StudentsTab(repository, snackbar, onWriteToStudent, modifier, bottom)
         }
     }
@@ -115,6 +118,7 @@ private fun WorksTab(
     bottom: androidx.compose.ui.unit.Dp,
 ) {
     var onlyUnchecked by rememberSaveable { mutableStateOf(true) }
+    val content by repository.content.collectAsState()
     val loader = rememberLoader(onlyUnchecked) { repository.allSubmissions(onlyUnchecked) }
 
     PullToRefreshBox(isRefreshing = loader.refreshing && loader.state is Load.Ok, onRefresh = loader::reload, modifier = modifier) {
@@ -136,7 +140,8 @@ private fun WorksTab(
                     item { EmptyBox("🎉", if (onlyUnchecked) "Все работы проверены" else "Ученики пока не сдавали работ") }
                 } else {
                     items(state.value, key = { it.id }) { submission ->
-                        SubmissionCard(submission, showStudent = true) { onOpenSubmission(submission.id) }
+                        val late = submission.isLate(content.practice(submission.practice))
+                        SubmissionCard(submission, showStudent = true, late = late) { onOpenSubmission(submission.id) }
                     }
                 }
             }
@@ -235,8 +240,13 @@ private fun StudentsTab(
                 Load.Loading -> item { LoadingBox() }
                 is Load.Failed -> item { ErrorBox(state.message, loader::reload) }
                 is Load.Ok -> if (state.value.isEmpty()) {
+                    item { SectionLabel("Коды классов") }
+                    item { ClassCodesSection(repository, emptyList(), snackbar) }
                     item { EmptyBox("👥", "Пока никто из учеников не зарегистрировался") }
                 } else {
+                    item { SectionLabel("Коды классов") }
+                    item { ClassCodesSection(repository, classesOf(state.value), snackbar) }
+                    item { SectionLabel("Ученики") }
                     item {
                         Text(
                             "Учеников: ${state.value.size}. Нажмите на ученика, чтобы сбросить ему пароль, или на значок чата, чтобы написать ему.",

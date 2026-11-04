@@ -89,6 +89,7 @@ import ru.prostayahimiya.app.data.CheckResult
 import ru.prostayahimiya.app.data.Repository
 import ru.prostayahimiya.app.data.Task
 import ru.prostayahimiya.app.data.TaskType
+import ru.prostayahimiya.app.data.formatDay
 import ru.prostayahimiya.app.data.formatServerDate
 import ru.prostayahimiya.app.ui.components.BackTopBar
 import ru.prostayahimiya.app.ui.components.EmptyBox
@@ -180,6 +181,21 @@ fun PracticeScreen(practiceId: String, repository: Repository, onBack: () -> Uni
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 item { ProgressHeader(practice.title, vm.filledCount, vm.totalCount) }
+                practice.deadlineInstant?.let { deadline ->
+                    item {
+                        val overdue = deadline.isBefore(java.time.Instant.now())
+                        Text(
+                            "⏰ " + if (overdue) {
+                                "Срок сдачи прошёл ${formatDay(deadline)} — сдать ещё можно, учитель увидит опоздание"
+                            } else {
+                                "Сдать до ${formatDay(deadline)}"
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (overdue) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
                 if (vm.sections.isEmpty()) {
                     item { EmptyBox("📝", "В этой практике пока нет заданий") }
                 }

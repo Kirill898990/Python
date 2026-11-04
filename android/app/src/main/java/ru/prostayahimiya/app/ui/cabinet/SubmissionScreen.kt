@@ -47,6 +47,7 @@ import ru.prostayahimiya.app.data.AnswerItem
 import ru.prostayahimiya.app.data.Repository
 import ru.prostayahimiya.app.data.Submission
 import ru.prostayahimiya.app.data.formatServerDate
+import ru.prostayahimiya.app.data.isLate
 import ru.prostayahimiya.app.ui.components.BackTopBar
 import ru.prostayahimiya.app.ui.components.ErrorBox
 import ru.prostayahimiya.app.ui.components.GradeBadge
@@ -98,6 +99,7 @@ private fun SubmissionContent(
     padding: PaddingValues,
 ) {
     var current by remember(submission.id) { mutableStateOf(submission) }
+    val content by repository.content.collectAsState()
     // Номера вопросов считаем заранее: элементы списка рисуются не по порядку.
     val questionNumbers = remember(current.answers) {
         var n = 0
@@ -127,6 +129,7 @@ private fun SubmissionContent(
                     buildString {
                         append("Сдано ${formatServerDate(current.created)}")
                         if (current.total > 0) append(" · автопроверка: верно ${current.solved} из ${current.total}")
+                        if (current.isLate(content.practice(current.practice))) append(" · с опозданием")
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

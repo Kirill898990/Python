@@ -31,6 +31,8 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -48,7 +50,9 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -73,6 +77,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
+import java.time.Instant
+import java.time.ZoneId
+import java.time.ZoneOffset
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -88,7 +95,9 @@ import ru.prostayahimiya.app.data.Repository
 import ru.prostayahimiya.app.data.Subject
 import ru.prostayahimiya.app.data.Task
 import ru.prostayahimiya.app.data.TaskType
+import ru.prostayahimiya.app.data.formatDay
 import ru.prostayahimiya.app.data.parseCoefficients
+import ru.prostayahimiya.app.data.parseServerInstant
 import ru.prostayahimiya.app.ui.components.BackTopBar
 import ru.prostayahimiya.app.ui.components.SectionLabel
 import ru.prostayahimiya.app.ui.components.cardBorder
@@ -106,6 +115,17 @@ fun PracticeEditorScreen(practiceId: String, repository: Repository, onBack: () 
     var subject by rememberSaveable(currentId) { mutableStateOf(original.subject) }
     var grade by rememberSaveable(currentId) { mutableIntStateOf(original.grade) }
     var published by rememberSaveable(currentId) { mutableStateOf(original.published) }
+    var classes by rememberSaveable(currentId) { mutableStateOf(original.classes) }
+    var deadline by rememberSaveable(currentId) { mutableStateOf(original.deadline) }
+    var pickingDate by remember { mutableStateOf(false) }
+    // Классы, которые можно выбрать: из списка учеников и уже выбранные.
+    var knownClasses by remember { mutableStateOf(original.classes) }
+    LaunchedEffect(Unit) {
+        runCatching { repository.students() }.onSuccess { list ->
+            knownClasses = (knownClasses + list.map { it.group }.filter { it.isNotBlank() }).distinct()
+                .sortedWith(compareBy({ it.takeWhile(Char::isDigit).toIntOrNull() ?: 0 }, { it }))
+        }
+    }
     var busy by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<Task?>(null) }
     var deletingTask by remember { mutableStateOf<Task?>(null) }
@@ -114,7 +134,8 @@ fun PracticeEditorScreen(practiceId: String, repository: Repository, onBack: () 
     val scope = rememberCoroutineScope()
     val tasks = if (currentId.isEmpty()) emptyList() else content.tasksOf(currentId)
     val changed = currentId.isEmpty() || title != original.title || subject != original.subject ||
-        grade != original.grade || published != original.published
+        grade != original.grade || published != original.published || classes != original.classes ||
+        parseServerInstant(deadline) != original.deadlineInstant
 
     /** Выполняет действие с сервером и показывает ошибку, если что-то пошло не так. */
     fun serverAction(success: String? = null, action: suspend () -> Unit) {
@@ -134,7 +155,10 @@ fun PracticeEditorScreen(practiceId: String, repository: Repository, onBack: () 
 
     fun savePractice() = serverAction("Практика сохранена") {
         val saved = repository.savePractice(
-            original.copy(id = currentId, title = title, subject = subject, grade = grade, published = published),
+            original.copy(
+                id = currentId, title = title, subject = subject, grade = grade, published = published,
+                classes = classes, deadline = deadline,
+            ),
         )
         currentId = saved.id
     }
@@ -193,6 +217,26 @@ fun PracticeEditorScreen(practiceId: String, repository: Repository, onBack: () 
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             (5..11).forEach { g ->
                                 FilterChip(selected = grade == g, onClick = { grade = g }, label = { Text("$g") })
+                            }
+                        }
+                        Text("Для каких классов", style = MaterialTheme.typography.labelLarge)
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilterChip(selected = classes.isEmpty(), onClick = { classes = emptyList() }, label = { Text("Все классы") })
+                            knownClasses.forEach { g ->
+                                FilterChip(
+                                    selected = g in classes,
+                                    onClick = { classes = if (g in classes) classes - g else (classes + g).sorted() },
+                                    label = { Text(g) },
+                                )
+                            }
+                        }
+                        Text("Срок сдачи (необязательно)", style = MaterialTheme.typography.labelLarge)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            OutlinedButton(onClick = { pickingDate = true }) {
+                                Text(parseServerInstant(deadline)?.let { "до ${formatDay(it)}" } ?: "Выбрать дату")
+                            }
+                            if (deadline.isNotBlank()) {
+                                TextButton(onClick = { deadline = "" }) { Text("Без срока") }
                             }
                         }
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -287,6 +331,26 @@ fun PracticeEditorScreen(practiceId: String, repository: Repository, onBack: () 
                 }
             },
         )
+    }
+
+    if (pickingDate) {
+        // Календарь работает с полуночью по UTC, а срок — до конца выбранного дня по времени телефона.
+        val initial = parseServerInstant(deadline)?.atZone(ZoneId.systemDefault())?.toLocalDate()
+            ?.atStartOfDay(ZoneOffset.UTC)?.toInstant()?.toEpochMilli()
+        val state = rememberDatePickerState(initialSelectedDateMillis = initial)
+        DatePickerDialog(
+            onDismissRequest = { pickingDate = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    state.selectedDateMillis?.let { millis ->
+                        val day = Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate()
+                        deadline = day.atTime(23, 59).atZone(ZoneId.systemDefault()).toInstant().toString()
+                    }
+                    pickingDate = false
+                }) { Text("Готово") }
+            },
+            dismissButton = { TextButton(onClick = { pickingDate = false }) { Text("Отмена") } },
+        ) { DatePicker(state = state) }
     }
 
     deletingTask?.let { task ->

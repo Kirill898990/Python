@@ -41,6 +41,8 @@ import ru.prostayahimiya.app.data.Practice
 import ru.prostayahimiya.app.data.Repository
 import ru.prostayahimiya.app.data.Subject
 import ru.prostayahimiya.app.data.Submission
+import ru.prostayahimiya.app.data.deadlineStatus
+import ru.prostayahimiya.app.data.formatDay
 import ru.prostayahimiya.app.ui.components.BackTopBar
 import ru.prostayahimiya.app.ui.components.GradeBadge
 import ru.prostayahimiya.app.ui.components.cardBorder
@@ -157,14 +159,29 @@ private fun GradeCard(
                             }
                         }
                         Text(
-                            when {
-                                !showStatus || last == null -> "$total ${tasksWord(total)}" + if (showStatus) " · не сдано" else ""
-                                last.isGraded -> "Сдано · оценка ${last.grade}"
-                                else -> "Сдано · на проверке"
-                            },
+                            listOfNotNull(
+                                when {
+                                    !showStatus || last == null -> "$total ${tasksWord(total)}" + if (showStatus) " · не сдано" else ""
+                                    last.isGraded -> "Сдано · оценка ${last.grade}"
+                                    else -> "Сдано · на проверке"
+                                },
+                                // Учителю — для каких классов и до какого числа.
+                                practice.classes.takeIf { !showStatus && it.isNotEmpty() }?.let { "для ${it.joinToString(", ")}" },
+                                practice.deadlineInstant?.takeIf { !showStatus }?.let { "до ${formatDay(it)}" },
+                            ).joinToString(" · "),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        if (showStatus) {
+                            practice.deadlineStatus(submitted = last != null)?.let { due ->
+                                Text(
+                                    "⏰ ${due.text}",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = if (due.overdue) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        }
                     }
                     if (showStatus && last != null && last.isGraded) {
                         GradeBadge(last.grade, size = 36.dp)

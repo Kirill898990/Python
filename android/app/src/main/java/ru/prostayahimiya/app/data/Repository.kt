@@ -46,7 +46,7 @@ class Repository(private val context: Context) {
     val user: StateFlow<User?> = _user.asStateFlow()
 
     private val cacheFile = File(context.filesDir, "content.json")
-    private val _content = MutableStateFlow(loadCache())
+    private val _content = MutableStateFlow(forUser(loadCache(), loadUser()))
     /** Практики и задания. Сначала берутся с телефона, потом обновляются с сервера. */
     val content: StateFlow<ContentData> = _content.asStateFlow()
 
@@ -88,13 +88,18 @@ class Repository(private val context: Context) {
         refreshContent()
     }
 
-    suspend fun register(name: String, group: String, username: String, password: String, passwordConfirm: String) {
+    /** Нужен ли код класса для регистрации (его включает учитель). Без связи считаем, что не нужен. */
+    suspend fun registrationInfo(): RegistrationInfo =
+        runCatching { api.call("GET", api.url("api/registration-info"), RegistrationInfo.serializer()) }.getOrDefault(RegistrationInfo())
+
+    suspend fun register(name: String, group: String, username: String, password: String, passwordConfirm: String, classCode: String = "") {
         api.send(
             "POST",
             api.url("api/collections/users/records"),
             buildJsonObject {
                 put("name", name.trim())
                 put("group", group.trim().uppercase())
+                put("classCode", classCode.trim().uppercase())
                 put("username", normalizeUsername(username))
                 put("password", password)
                 put("passwordConfirm", passwordConfirm)
@@ -131,7 +136,7 @@ class Repository(private val context: Context) {
         val practices = api.listAll("practices", Practice.serializer(), sort = "grade,position,title")
         val tasks = api.listAll("tasks", Task.serializer(), sort = "position")
         val data = ContentData(practices, tasks)
-        _content.value = data
+        _content.value = forUser(data, _user.value)
         _contentError.value = null
         cacheFile.writeText(api.json.encodeToString(ContentData.serializer(), data))
         true
@@ -300,6 +305,8 @@ class Repository(private val context: Context) {
             put("grade", practice.grade)
             put("position", practice.position)
             put("published", practice.published)
+            put("classes", buildJsonArray { practice.classes.forEach { add(it) } })
+            put("deadline", practice.deadline)
         }
         val saved = save("practices", practice.id, body, Practice.serializer())
         _content.value = _content.value.copy(practices = _content.value.practices.filter { it.id != saved.id } + saved)
@@ -349,6 +356,45 @@ class Repository(private val context: Context) {
             },
         )
     }.getOrThrow()
+
+    // ---------- Коды классов и журнал ----------
+
+    suspend fun classCodes(): List<ClassCode> = guard {
+        api.listAll("class_codes", ClassCode.serializer(), sort = "group,created")
+    }.getOrThrow()
+
+    /** Новый код для класса: 6 букв и цифр, без похожих друг на друга (0 и O, 1 и I). */
+    suspend fun createClassCode(group: String): ClassCode = guard {
+        val alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+        val random = java.security.SecureRandom()
+        val code = (1..6).map { alphabet[random.nextInt(alphabet.length)] }.joinToString("")
+        api.call(
+            "POST",
+            api.url("api/collections/class_codes/records"),
+            ClassCode.serializer(),
+            buildJsonObject {
+                put("group", group.trim().uppercase())
+                put("code", code)
+                put("active", true)
+            },
+        )
+    }.getOrThrow()
+
+    suspend fun setClassCodeActive(id: String, active: Boolean): ClassCode = guard {
+        api.call(
+            "PATCH",
+            api.url("api/collections/class_codes/records/${safeId(id)}"),
+            ClassCode.serializer(),
+            buildJsonObject { put("active", active) },
+        )
+    }.getOrThrow()
+
+    suspend fun deleteClassCode(id: String) = guard {
+        api.send("DELETE", api.url("api/collections/class_codes/records/${safeId(id)}"))
+    }.getOrThrow()
+
+    /** Всё для журнала: ученики и все сданные работы. */
+    suspend fun journal(): Pair<List<User>, List<Submission>> = students() to allSubmissions(onlyUnchecked = false)
 
     // ---------- Чат ----------
 
@@ -512,6 +558,14 @@ class Repository(private val context: Context) {
 
     private fun loadUser(): User? = prefs.getString(KEY_USER, null)?.let {
         runCatching { api.json.decodeFromString(User.serializer(), it) }.getOrNull()
+    }
+
+    /** Ученик видит только практики для своего класса, учитель — все. */
+    private fun forUser(data: ContentData, user: User?): ContentData {
+        if (user == null || user.isTeacher) return data
+        val practices = data.practices.filter { it.isFor(user.group) }
+        val ids = practices.map { it.id }.toSet()
+        return ContentData(practices, data.tasks.filter { it.practice in ids })
     }
 
     private fun loadCache(): ContentData = runCatching {
