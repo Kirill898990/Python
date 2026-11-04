@@ -97,11 +97,15 @@
     return Screens.asyncBlock(() => Api.students(), (items) => {
       if (!items.length) return emptyBox("👥", "Пока никто из учеников не зарегистрировался");
       return [
-        h("p", { class: "muted small" }, `Учеников: ${items.length}. Нажмите на ученика, чтобы сбросить ему пароль.`),
-        items.map((st) => h("button", { class: "card card-link", type: "button", onclick: () => resetPassword(st) },
-          h("div", { class: "grow" },
+        h("p", { class: "muted small" }, `Учеников: ${items.length}. Нажмите на ученика, чтобы сбросить ему пароль, или на 💬, чтобы написать ему.`),
+        items.map((st) => h("div", { class: "card student-row" },
+          h("button", { class: "student-main", type: "button", onclick: () => resetPassword(st) },
             h("div", { class: "card-title" }, st.name),
-            h("div", { class: "card-sub" }, [st.group && `${st.group} класс`, `логин ${st.username}`].filter(Boolean).join(" · "))))),
+            h("div", { class: "card-sub" }, [st.group && `${st.group} класс`, `логин ${st.username}`].filter(Boolean).join(" · "))),
+          h("button", {
+            class: "icon-btn", type: "button", "aria-label": `Написать: ${st.name}`, title: "Написать ученику",
+            onclick: () => Chat.open({ kind: "private", student: st.id }, st.group ? `${st.name}, ${st.group}` : st.name),
+          }, icon("chat")))),
       ];
     });
   }

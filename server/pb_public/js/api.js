@@ -142,6 +142,8 @@
   }
 
   function logout() {
+    realtime.close();
+    realtime.handlers.clear();
     token = null;
     state.user = null;
     state.content = { practices: [], tasks: [] };
@@ -197,6 +199,73 @@
       p.solved = p.solved.filter((id) => !taskIds.includes(id));
       taskIds.forEach((id) => { delete p.drafts[id]; delete p.attempts[id]; });
       storage.set(progressKey(), p);
+    },
+  };
+
+  // ---------- Чат ----------
+  /** Строка для фильтра PocketBase в кавычках, как pb.filter() в официальной библиотеке. */
+  const quote = (v) => "'" + String(v).replace(/\\/g, "\\\\").replace(/'/g, "\\'") + "'";
+
+  /** Комната чата: {kind: "class", group} или {kind: "private", student}. */
+  function roomKey(room) {
+    return room.kind === "class" ? "class:" + room.group : "private:" + room.student;
+  }
+  function roomFilter(room) {
+    return room.kind === "class"
+      ? `kind = "class" && group = ${quote(room.group)}`
+      : `kind = "private" && student = "${safeId(room.student)}"`;
+  }
+  function inRoom(message, room) {
+    return message.kind === room.kind &&
+      (room.kind === "class" ? message.group === room.group : message.student === room.student);
+  }
+
+  /** Когда пользователь последний раз открывал каждый чат (только в этом браузере). */
+  const chatSeen = {
+    key: () => "chatSeen_" + (state.user ? state.user.id : "guest"),
+    get(room) { return storage.get(this.key(), {})[roomKey(room)] || ""; },
+    mark(room, created) {
+      const all = storage.get(this.key(), {});
+      if (created && created > (all[roomKey(room)] || "")) {
+        all[roomKey(room)] = created;
+        storage.set(this.key(), all);
+      }
+    },
+  };
+
+  /**
+   * Новые сообщения без перезагрузки страницы (realtime PocketBase через EventSource).
+   * Сервер сам проверяет права: ученику приходят только сообщения, которые ему можно видеть.
+   */
+  const realtime = {
+    source: null,
+    handlers: new Set(),
+    subscribe(fn) {
+      this.handlers.add(fn);
+      if (!this.source && typeof EventSource !== "undefined") this.connect();
+      return () => {
+        this.handlers.delete(fn);
+        if (!this.handlers.size) this.close();
+      };
+    },
+    connect() {
+      const source = new EventSource(serverUrl() + "/api/realtime");
+      this.source = source;
+      source.addEventListener("PB_CONNECT", (e) => {
+        let clientId = "";
+        try { clientId = JSON.parse(e.data).clientId; } catch (_) { return; }
+        request("POST", "api/realtime", { body: { clientId, subscriptions: ["messages"] } })
+          .then(() => this.handlers.forEach((fn) => fn({ action: "connected" })), () => {});
+      });
+      source.addEventListener("messages", (e) => {
+        let data;
+        try { data = JSON.parse(e.data); } catch (_) { return; }
+        this.handlers.forEach((fn) => fn(data));
+      });
+    },
+    close() {
+      if (this.source) this.source.close();
+      this.source = null;
     },
   };
 
@@ -374,6 +443,93 @@
 
     students() {
       return guard(listAll("users", { filter: "isTeacher = false", sort: "group,name" }));
+    },
+
+    // ----- Чат -----
+    roomKey,
+    inRoom,
+    chatSeen,
+    realtime,
+
+    /** Последние сообщения комнаты (до limit штук), старые сверху. hasMore — есть ли ещё более ранние. */
+    async messages(room, limit = 50) {
+      const r = await guard(request("GET", "api/collections/messages/records", {
+        query: { filter: roomFilter(room), sort: "-created,-id", perPage: limit, page: 1 },
+      }));
+      return { items: r.items.reverse(), hasMore: r.totalItems > r.items.length };
+    },
+
+    sendMessage(room, text) {
+      const u = state.user;
+      return guard(request("POST", "api/collections/messages/records", {
+        body: {
+          author: u.id, authorName: u.name, fromTeacher: !!u.isTeacher, kind: room.kind,
+          group: room.kind === "class" ? room.group : "",
+          student: room.kind === "private" ? room.student : "",
+          text: String(text).trim(),
+        },
+      }));
+    },
+
+    deleteMessage(id) {
+      return guard(request("DELETE", `api/collections/messages/records/${safeId(id)}`));
+    },
+
+    /**
+     * Список чатов с последним сообщением.
+     * Ученик: чат своего класса и переписка с учителем. Учитель: все классы и все личные переписки.
+     */
+    async chatRooms() {
+      const u = state.user;
+      const last = async (room) => {
+        const r = await guard(request("GET", "api/collections/messages/records", {
+          query: { filter: roomFilter(room), sort: "-created,-id", perPage: 1, skipTotal: 1 },
+        }));
+        return r.items[0] || null;
+      };
+      const withState = (room) => {
+        const seen = chatSeen.get(room);
+        room.unread = !!room.last && room.last.author !== u.id && room.last.created > seen;
+        return room;
+      };
+      if (!u.isTeacher) {
+        const rooms = [];
+        if (u.group) rooms.push({ kind: "class", group: u.group, title: `Чат класса ${u.group}` });
+        rooms.push({ kind: "private", student: u.id, title: "Учитель", subtitle: "Личные сообщения" });
+        await Promise.all(rooms.map(async (room) => { room.last = await last(room); }));
+        return rooms.map(withState);
+      }
+      const [students, privateMessages] = await Promise.all([
+        this.students(),
+        guard(request("GET", "api/collections/messages/records", {
+          query: { filter: 'kind = "private"', sort: "-created,-id", perPage: 500, skipTotal: 1 },
+        })).then((r) => r.items),
+      ]);
+      const groups = [...new Set(students.map((s) => s.group).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ru", { numeric: true }));
+      const classes = groups.map((group) => ({ kind: "class", group, title: `${group} класс` }));
+      await Promise.all(classes.map(async (room) => { room.last = await last(room); }));
+      const byId = new Map(students.map((s) => [s.id, s]));
+      const threads = [];
+      const seenStudents = new Set();
+      privateMessages.forEach((m) => {
+        if (seenStudents.has(m.student)) return;
+        seenStudents.add(m.student);
+        const st = byId.get(m.student);
+        threads.push({
+          kind: "private", student: m.student, last: m,
+          title: st ? st.name : "Ученик", subtitle: st && st.group ? `${st.group} класс` : "",
+        });
+      });
+      return classes.concat(threads).map(withState);
+    },
+
+    /** Сколько чатов с новыми сообщениями (для значка на главной). */
+    async unreadChats() {
+      try {
+        return (await this.chatRooms()).filter((r) => r.unread).length;
+      } catch (_) {
+        return 0;
+      }
     },
 
     resetPassword(userId, password) {

@@ -177,6 +177,7 @@
         h("p", null, Api.state.contentError + " Показаны сохранённые задания."), refreshBtn),
       h("img", { class: "banner banner-lab", src: "images/banner-lab.jpg", alt: "" }),
       user && user.isTeacher && menuCard("#/admin/works", "📋", "c-primary", "Панель учителя", "Проверка работ, оценки и задания", true),
+      user && Chat.homeCard(),
       totalPractices > 0 && !(user && user.isTeacher) && h("div", { class: "card" },
         h("div", { class: "card-title" }, submitted === totalPractices ? "Все практики сданы! 🎉" : "Твой прогресс"),
         h("p", { class: "muted small mt" }, `Сдано ${submitted} из ${totalPractices} ${Content.practicesWord(totalPractices)}`),
