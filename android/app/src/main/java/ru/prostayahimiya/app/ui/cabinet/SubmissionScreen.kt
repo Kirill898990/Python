@@ -264,10 +264,11 @@ private fun AnswerCard(answer: AnswerItem, questionNumber: Int?) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f),
                 )
+                val tries = answer.attempts?.takeIf { it > 0 }?.let { " · попыток: $it" }.orEmpty()
                 when (answer.correct) {
-                    true -> Text("✅ верно", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                    true -> Text("✅ верно$tries", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                     false -> Text(
-                        if (answer.answer.isBlank()) "— не решено" else "❌ неверно",
+                        if (answer.answer.isBlank()) "— не решено" else "❌ неверно$tries",
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.error,
                     )

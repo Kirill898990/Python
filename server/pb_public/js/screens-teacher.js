@@ -97,11 +97,15 @@
     return Screens.asyncBlock(() => Api.students(), (items) => {
       if (!items.length) return emptyBox("👥", "Пока никто из учеников не зарегистрировался");
       return [
-        h("p", { class: "muted small" }, `Учеников: ${items.length}. Нажмите на ученика, чтобы сбросить ему пароль.`),
-        items.map((st) => h("button", { class: "card card-link", type: "button", onclick: () => resetPassword(st) },
-          h("div", { class: "grow" },
+        h("p", { class: "muted small" }, `Учеников: ${items.length}. Нажмите на ученика, чтобы сбросить ему пароль, или на 💬, чтобы написать ему.`),
+        items.map((st) => h("div", { class: "card student-row" },
+          h("button", { class: "student-main", type: "button", onclick: () => resetPassword(st) },
             h("div", { class: "card-title" }, st.name),
-            h("div", { class: "card-sub" }, [st.group && `${st.group} класс`, `логин ${st.username}`].filter(Boolean).join(" · "))))),
+            h("div", { class: "card-sub" }, [st.group && `${st.group} класс`, `логин ${st.username}`].filter(Boolean).join(" · "))),
+          h("button", {
+            class: "icon-btn", type: "button", "aria-label": `Написать: ${st.name}`, title: "Написать ученику",
+            onclick: () => Chat.open({ kind: "private", student: st.id }, st.group ? `${st.name}, ${st.group}` : st.name),
+          }, icon("chat")))),
       ];
     });
   }
@@ -273,9 +277,6 @@
           multiline: t.type === "question", value: t.text, autocapitalize: t.type === "equation" ? "none" : "sentences",
           oninput: (v) => { t.text = v; validate(); },
         });
-        const hintField = t.type === "question" ? null : field({
-          label: "Подсказка (необязательно)", multiline: true, rows: 2, value: t.hint, oninput: (v) => { t.hint = v; },
-        });
 
         function validate() {
           const message = Chem.validateTask(t.type, t.text, t.answer);
@@ -294,7 +295,8 @@
         async function save() {
           if (Chem.validateTask(t.type, t.text, t.answer)) return;
           // Приводим к единому виду: «Al+O2→Al2O3» станет «Al + O2 = Al2O3», формула без пробелов.
-          if (t.type === "question") { t.answer = ""; t.hint = ""; }
+          if (t.type === "question") t.answer = "";
+          t.hint = ""; // подсказок больше нет: ученики решают сами
           if (t.type === "formula") t.answer = Chem.normalize(t.answer);
           if (t.type === "equation") {
             const eq = Chem.parseEquation(t.text);
@@ -316,7 +318,7 @@
         validate();
         return {
           title: (task.id ? "Задание: " : "Новое задание: ") + info.title.toLowerCase(),
-          body: [textField, answerField, hintField, error],
+          body: [textField, answerField, error],
           actions: [button("Отмена", close, { kind: "text" }), saveBtn],
         };
       }, { wide: true });

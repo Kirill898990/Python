@@ -358,7 +358,6 @@ private fun TaskEditorDialog(task: Task, onDismiss: () -> Unit, onSave: (Task) -
     val type = task.taskType
     var text by rememberSaveable(task.id) { mutableStateOf(task.text) }
     var answer by rememberSaveable(task.id) { mutableStateOf(task.answer) }
-    var hint by rememberSaveable(task.id) { mutableStateOf(task.hint) }
     val error = validateTask(type.key, text, answer)
 
     AlertDialog(
@@ -428,16 +427,6 @@ private fun TaskEditorDialog(task: Task, onDismiss: () -> Unit, onSave: (Task) -
                         )
                     }
                 }
-                if (type != TaskType.QUESTION) {
-                    OutlinedTextField(
-                        value = hint,
-                        onValueChange = { hint = it },
-                        label = { Text("Подсказка (необязательно)") },
-                        minLines = 2,
-                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
                 if (error != null && (text.isNotBlank() || answer.isNotBlank())) {
                     Text("⚠️ $error", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
                 }
@@ -446,7 +435,7 @@ private fun TaskEditorDialog(task: Task, onDismiss: () -> Unit, onSave: (Task) -
         confirmButton = {
             TextButton(
                 enabled = error == null,
-                onClick = { onSave(task.copy(text = text, answer = answer, hint = hint).normalized()) },
+                onClick = { onSave(task.copy(text = text, answer = answer, hint = "").normalized()) },
             ) { Text("Сохранить") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },

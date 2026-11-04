@@ -1,7 +1,8 @@
 /*
  * Запуск сайта и переходы между экранами.
  * Адреса экранов: #/ (главная), #/subject/chemistry, #/practice/<id>, #/theory, #/cabinet,
- * #/submission/<id>, #/admin/works|tasks|students, #/admin/practice/<id или new>.
+ * #/submission/<id>, #/admin/works|tasks|students, #/admin/practice/<id или new>,
+ * #/chats (список чатов), #/chat/class/<класс>, #/chat/private/<id ученика>.
  */
 (function () {
   "use strict";
@@ -14,6 +15,8 @@
     { pattern: /^practice\/([a-z0-9]+)$/, screen: (m) => Screens.practice({ id: m[1] }), name: "practice" },
     { pattern: /^cabinet$/, screen: () => Screens.cabinet(), name: "cabinet" },
     { pattern: /^submission\/([a-z0-9]+)$/, screen: (m) => Screens.submission({ id: m[1] }), name: "submission" },
+    { pattern: /^chats$/, screen: () => Chat.list(), name: "chats" },
+    { pattern: /^chat\/(class|private)\/([^/]{1,40})$/, screen: (m) => Chat.room({ kind: m[1], key: m[2] }), name: "chat" },
     { pattern: /^admin\/practice\/([a-z0-9]+)$/, screen: (m) => Teacher.editor({ id: m[1] }), name: "editor", teacher: true },
     { pattern: /^admin(?:\/(works|tasks|students))?$/, screen: (m) => Teacher.admin({ tab: m[1] }), name: "admin", teacher: true },
   ];
@@ -46,6 +49,9 @@
         screen = route.screen(p.match(route.pattern));
       }
     }
+    // Экран, который закрываем, может попросить что-то за собой убрать (например, отписаться от чата).
+    const old = root.firstElementChild;
+    if (old && typeof old.onLeave === "function") old.onLeave();
     root.replaceChildren(screen);
     updateTitle();
   }
@@ -97,7 +103,8 @@
       render();
       return;
     }
-    if (what === "content" && ["home", "subject", "theory", "admin"].includes(current)) {
+    const screens = what === "submissions" ? ["home", "subject"] : ["home", "subject", "theory", "admin"];
+    if ((what === "content" || what === "submissions") && screens.includes(current)) {
       const active = document.activeElement;
       if (!active || !["INPUT", "TEXTAREA"].includes(active.tagName)) render();
     }
@@ -112,6 +119,6 @@
   window.__lastDepth = depth();
   render();
   if (Api.state.user) {
-    Api.refreshSession().then(() => Api.refreshContent());
+    Api.refreshSession().then(() => Promise.all([Api.refreshContent(), Api.refreshMySubmissions()]));
   }
 })();

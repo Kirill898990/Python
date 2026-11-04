@@ -9,11 +9,15 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import android.net.Uri
 import androidx.lifecycle.compose.dropUnlessResumed
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
+import ru.prostayahimiya.app.data.ChatRoom
 import ru.prostayahimiya.app.data.Repository
 import ru.prostayahimiya.app.data.Subject
 import ru.prostayahimiya.app.ui.admin.AdminScreen
@@ -21,6 +25,8 @@ import ru.prostayahimiya.app.ui.admin.PracticeEditorScreen
 import ru.prostayahimiya.app.ui.auth.AuthScreen
 import ru.prostayahimiya.app.ui.cabinet.CabinetScreen
 import ru.prostayahimiya.app.ui.cabinet.SubmissionScreen
+import ru.prostayahimiya.app.ui.chat.ChatListScreen
+import ru.prostayahimiya.app.ui.chat.ChatScreen
 import ru.prostayahimiya.app.ui.components.BackTopBar
 import ru.prostayahimiya.app.ui.components.EmptyBox
 import ru.prostayahimiya.app.ui.home.HomeScreen
@@ -44,6 +50,7 @@ fun AppNavigation(repository: Repository) {
     LaunchedEffect(user?.id) {
         repository.refreshSession()
         repository.refreshContent()
+        if (repository.user.value?.isTeacher != true) repository.refreshMySubmissions()
     }
 
     NavHost(navController = nav, startDestination = "home") {
@@ -54,6 +61,27 @@ fun AppNavigation(repository: Repository) {
                 onOpenTheory = { nav.navigate("theory") },
                 onOpenCabinet = { nav.navigate("cabinet") },
                 onOpenAdmin = { nav.navigate("admin") },
+                onOpenChat = { nav.navigate("chats") },
+            )
+        }
+        composable("chats") {
+            ChatListScreen(
+                repository = repository,
+                onBack = dropUnlessResumed { nav.popBackStack() },
+                onOpenRoom = { room, title -> nav.navigate(chatRoute(room, title)) },
+            )
+        }
+        composable(
+            "chat/{kind}/{key}?title={title}",
+            arguments = listOf(navArgument("title") { type = NavType.StringType; defaultValue = "" }),
+        ) { entry ->
+            val kind = entry.arguments?.getString("kind").orEmpty()
+            val key = entry.arguments?.getString("key").orEmpty()
+            ChatScreen(
+                room = ChatRoom(if (kind == ChatRoom.PRIVATE) ChatRoom.PRIVATE else ChatRoom.CLASS, key),
+                title = entry.arguments?.getString("title").orEmpty(),
+                repository = repository,
+                onBack = dropUnlessResumed { nav.popBackStack() },
             )
         }
         composable("subject/{subject}") { entry ->
@@ -97,6 +125,10 @@ fun AppNavigation(repository: Repository) {
                     onBack = dropUnlessResumed { nav.popBackStack() },
                     onOpenSubmission = { id -> nav.navigate("submission/$id") },
                     onEditPractice = { id -> nav.navigate("admin/practice/$id") },
+                    onWriteToStudent = { student ->
+                        val title = if (student.group.isNotBlank()) "${student.name}, ${student.group}" else student.name
+                        nav.navigate(chatRoute(ChatRoom.private(student.id), title))
+                    },
                 )
             }
         }
@@ -111,6 +143,10 @@ fun AppNavigation(repository: Repository) {
         }
     }
 }
+
+/** Адрес экрана переписки. Класс и имя могут быть по-русски, поэтому кодируем их. */
+private fun chatRoute(room: ChatRoom, title: String) =
+    "chat/${room.kind}/${Uri.encode(room.key)}?title=${Uri.encode(title)}"
 
 /** Открывает экран, а если он уже открыт ниже в стеке, возвращается к нему. */
 private fun NavHostController.navigateSingle(route: String) {

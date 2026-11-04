@@ -18,6 +18,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryTabRow
@@ -69,6 +70,7 @@ fun AdminScreen(
     onBack: () -> Unit,
     onOpenSubmission: (String) -> Unit,
     onEditPractice: (String) -> Unit,
+    onWriteToStudent: (User) -> Unit,
 ) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     val snackbar = remember { SnackbarHostState() }
@@ -97,7 +99,7 @@ fun AdminScreen(
         when (tab) {
             0 -> WorksTab(repository, onOpenSubmission, modifier, bottom)
             1 -> PracticesTab(repository, onEditPractice, modifier, bottom)
-            else -> StudentsTab(repository, snackbar, modifier, bottom)
+            else -> StudentsTab(repository, snackbar, onWriteToStudent, modifier, bottom)
         }
     }
 }
@@ -216,6 +218,7 @@ private fun PracticesTab(
 private fun StudentsTab(
     repository: Repository,
     snackbar: SnackbarHostState,
+    onWriteToStudent: (User) -> Unit,
     modifier: Modifier,
     bottom: androidx.compose.ui.unit.Dp,
 ) {
@@ -236,21 +239,30 @@ private fun StudentsTab(
                 } else {
                     item {
                         Text(
-                            "Учеников: ${state.value.size}. Нажмите на ученика, чтобы сбросить ему пароль.",
+                            "Учеников: ${state.value.size}. Нажмите на ученика, чтобы сбросить ему пароль, или на значок чата, чтобы написать ему.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     items(state.value, key = { it.id }) { student ->
                         Card(onClick = { selected = student }, colors = cardColors(), border = cardBorder()) {
-                            Column(Modifier.fillMaxWidth().padding(16.dp)) {
-                                Text(student.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                                Text(
-                                    listOfNotNull(student.group.takeIf { it.isNotBlank() }?.let { "$it класс" }, "логин ${student.username}")
-                                        .joinToString(" · "),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp)) {
+                                Column(Modifier.weight(1f).padding(vertical = 16.dp)) {
+                                    Text(student.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                                    Text(
+                                        listOfNotNull(student.group.takeIf { it.isNotBlank() }?.let { "$it класс" }, "логин ${student.username}")
+                                            .joinToString(" · "),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                IconButton(onClick = { onWriteToStudent(student) }) {
+                                    Icon(
+                                        painterResource(R.drawable.ic_chat),
+                                        contentDescription = "Написать: ${student.name}",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
                             }
                         }
                     }

@@ -26,7 +26,7 @@ data class User(
 data class AuthResponse(val token: String, val record: User)
 
 @Serializable
-data class Page<T>(val page: Int = 1, val totalPages: Int = 1, val items: List<T> = emptyList())
+data class Page<T>(val page: Int = 1, val totalPages: Int = 1, val totalItems: Int = -1, val items: List<T> = emptyList())
 
 @Serializable
 data class Practice(
@@ -91,6 +91,8 @@ data class AnswerItem(
     val answer: String,
     /** Для заданий с автопроверкой: решено ли верно. Для вопросов null. */
     val correct: Boolean? = null,
+    /** Сколько раз ученик нажимал «Проверить» (видит учитель). */
+    val attempts: Int? = null,
 )
 
 @Serializable
@@ -132,6 +134,50 @@ data class ContentData(
 
     val checkableTaskIds: List<String> get() = tasks.filter { it.isCheckable }.map { it.id }
 }
+
+/** Сообщение в чате (см. server/pb_migrations/1762100000_chat.js). */
+@Serializable
+data class Message(
+    val id: String = "",
+    val author: String = "",
+    val authorName: String = "",
+    val fromTeacher: Boolean = false,
+    /** class — чат класса, private — переписка ученика с учителем. */
+    val kind: String = ChatRoom.CLASS,
+    val group: String = "",
+    val student: String = "",
+    val text: String = "",
+    val created: String = "",
+)
+
+/** Комната чата: [key] — класс («8Б») для чата класса или id ученика для личной переписки. */
+data class ChatRoom(val kind: String, val key: String) {
+    val isClass: Boolean get() = kind == CLASS
+    val id: String get() = "$kind:$key"
+
+    fun contains(message: Message): Boolean =
+        message.kind == kind && (if (isClass) message.group == key else message.student == key)
+
+    companion object {
+        const val CLASS = "class"
+        const val PRIVATE = "private"
+        fun ofClass(group: String) = ChatRoom(CLASS, group)
+        fun private(studentId: String) = ChatRoom(PRIVATE, studentId)
+    }
+}
+
+/** Строка в списке чатов: комната, её название и последнее сообщение. */
+data class ChatThread(
+    val room: ChatRoom,
+    val title: String,
+    val subtitle: String = "",
+    val last: Message? = null,
+    val unread: Boolean = false,
+)
+
+/** Время сервера → момент времени, или null, если строка пустая или битая. */
+fun parseServerInstant(value: String): Instant? =
+    runCatching { Instant.parse(value.trim().replace(' ', 'T')) }.getOrNull()
 
 /** «2026-11-03 16:44:58.123Z» → «3 ноября, 19:44» (по времени телефона). */
 fun formatServerDate(value: String): String {
