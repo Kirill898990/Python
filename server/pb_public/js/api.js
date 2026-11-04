@@ -115,6 +115,8 @@
     user: storage.get("user", null),
     content: storage.get("content", { practices: [], tasks: [] }),
     contentError: null,
+    /** Сданные работы ученика (новые сверху): по ним считается прогресс на главной и в списке практик. */
+    mySubmissions: [],
   };
 
   function emit(what) {
@@ -143,6 +145,7 @@
     token = null;
     state.user = null;
     state.content = { practices: [], tasks: [] };
+    state.mySubmissions = [];
     storage.remove("token");
     storage.remove("user");
     storage.remove("content");
@@ -159,7 +162,8 @@
   }
   const progress = {
     load() {
-      return storage.get(progressKey(), { solved: [], drafts: {} });
+      const p = storage.get(progressKey(), {});
+      return { solved: p.solved || [], drafts: p.drafts || {}, attempts: p.attempts || {} };
     },
     solved() {
       return new Set(this.load().solved);
@@ -179,10 +183,19 @@
       p.drafts[taskId] = text;
       storage.set(progressKey(), p);
     },
+    /** Сколько раз ученик нажимал «Проверить» в задании. Учитель видит это в сданной работе. */
+    attempts(taskId) {
+      return this.load().attempts[taskId] || 0;
+    },
+    addAttempt(taskId) {
+      const p = this.load();
+      p.attempts[taskId] = (p.attempts[taskId] || 0) + 1;
+      storage.set(progressKey(), p);
+    },
     reset(taskIds) {
       const p = this.load();
       p.solved = p.solved.filter((id) => !taskIds.includes(id));
-      taskIds.forEach((id) => delete p.drafts[id]);
+      taskIds.forEach((id) => { delete p.drafts[id]; delete p.attempts[id]; });
       storage.set(progressKey(), p);
     },
   };
@@ -201,9 +214,6 @@
       return state.content.practices
         .filter((p) => p.subject === subject)
         .sort((a, b) => (a.grade - b.grade) || (a.position - b.position) || a.title.localeCompare(b.title));
-    },
-    checkableTaskIds() {
-      return state.content.tasks.filter(isCheckable).map((t) => t.id);
     },
   };
 
@@ -227,6 +237,7 @@
       });
       saveSession(r);
       await this.refreshContent();
+      await this.refreshMySubmissions();
     },
 
     async register(name, group, username, password, passwordConfirm) {
@@ -272,8 +283,8 @@
       }
     },
 
-    submit(practice, answers, solved, total) {
-      return guard(request("POST", "api/collections/submissions/records", {
+    async submit(practice, answers, solved, total) {
+      const saved = await guard(request("POST", "api/collections/submissions/records", {
         body: {
           student: state.user.id,
           practice: practice.id,
@@ -283,6 +294,23 @@
           total,
         },
       }));
+      state.mySubmissions = [saved].concat(state.mySubmissions);
+      emit("submissions");
+      return saved;
+    },
+
+    /** Обновляет список сданных работ ученика (для прогресса). Ошибки не страшны — останется старый список. */
+    async refreshMySubmissions() {
+      if (!state.user || state.user.isTeacher) return;
+      try {
+        state.mySubmissions = await this.mySubmissions();
+        emit("submissions");
+      } catch (_) { /* нет связи — покажем, что было */ }
+    },
+
+    /** Последняя сданная работа по практике или null. */
+    lastSubmission(practiceId) {
+      return state.mySubmissions.find((s) => s.practice === practiceId) || null;
     },
 
     mySubmissions(practiceId) {
@@ -378,6 +406,11 @@
     return `${date}, ${time}`;
   }
 
+  /** «1 практики», «3 практик»: для фразы «Сдано 2 из N …» */
+  function practicesWord(n) {
+    return n % 10 === 1 && n % 100 !== 11 ? "практики" : "практик";
+  }
+
   /** «3 задания», «5 заданий», «1 задание» */
   function tasksWord(n) {
     const m100 = n % 100;
@@ -421,6 +454,7 @@
     fullTitle,
     formatDate,
     tasksWord,
+    practicesWord,
     THEORY,
     FEEDBACK_URL: "https://forms.yandex.ru/u/6ad4f70a4a052d113bebc2a1",
     AUTHOR: "Простая химия с Ириной",

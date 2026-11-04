@@ -37,6 +37,10 @@ class Repository(private val context: Context) {
     /** Ошибка последней загрузки заданий (например, нет интернета). */
     val contentError: StateFlow<String?> = _contentError.asStateFlow()
 
+    private val _mySubmissions = MutableStateFlow<List<Submission>>(emptyList())
+    /** Сданные работы текущего ученика (новые сверху). По ним считается прогресс на всех устройствах. */
+    val mySubmissionsState: StateFlow<List<Submission>> = _mySubmissions.asStateFlow()
+
     private var progressStore: ProgressStore? = null
 
     /** Прогресс и черновики текущего ученика. */
@@ -99,6 +103,7 @@ class Repository(private val context: Context) {
         prefs.edit { clear() }
         cacheFile.delete()
         _content.value = ContentData()
+        _mySubmissions.value = emptyList()
         _user.value = null
     }
 
@@ -119,9 +124,14 @@ class Repository(private val context: Context) {
 
     // ---------- Работы учеников ----------
 
+    /** Обновляет список сданных работ ученика. Без интернета оставляет прежний. */
+    suspend fun refreshMySubmissions() {
+        runCatching { mySubmissions() }.onSuccess { _mySubmissions.value = it }
+    }
+
     suspend fun submit(practice: Practice, answers: List<AnswerItem>, solved: Int, total: Int): Submission = guard {
         val student = _user.value ?: throw ApiException("Нужно войти в аккаунт", 401)
-        api.call(
+        val saved = api.call(
             "POST",
             api.url("api/collections/submissions/records"),
             Submission.serializer(),
@@ -134,6 +144,8 @@ class Repository(private val context: Context) {
                 put("total", total)
             },
         )
+        _mySubmissions.value = listOf(saved) + _mySubmissions.value
+        saved
     }.getOrThrow()
 
     suspend fun mySubmissions(practiceId: String? = null): List<Submission> = guard {

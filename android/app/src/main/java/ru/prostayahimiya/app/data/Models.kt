@@ -91,6 +91,8 @@ data class AnswerItem(
     val answer: String,
     /** Для заданий с автопроверкой: решено ли верно. Для вопросов null. */
     val correct: Boolean? = null,
+    /** Сколько раз ученик нажимал «Проверить» (видит учитель). */
+    val attempts: Int? = null,
 )
 
 @Serializable

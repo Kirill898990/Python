@@ -97,7 +97,8 @@
       render();
       return;
     }
-    if (what === "content" && ["home", "subject", "theory", "admin"].includes(current)) {
+    const screens = what === "submissions" ? ["home", "subject"] : ["home", "subject", "theory", "admin"];
+    if ((what === "content" || what === "submissions") && screens.includes(current)) {
       const active = document.activeElement;
       if (!active || !["INPUT", "TEXTAREA"].includes(active.tagName)) render();
     }
@@ -112,6 +113,6 @@
   window.__lastDepth = depth();
   render();
   if (Api.state.user) {
-    Api.refreshSession().then(() => Api.refreshContent());
+    Api.refreshSession().then(() => Promise.all([Api.refreshContent(), Api.refreshMySubmissions()]));
   }
 })();

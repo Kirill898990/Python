@@ -107,6 +107,13 @@ fun BackTopBar(
     )
 }
 
+/** «1 практики», «3 практик»: для фразы «Сдано 2 из N …». */
+fun practicesWord(n: Int): String {
+    val mod100 = n % 100
+    val mod10 = n % 10
+    return if (mod10 == 1 && mod100 != 11) "практики" else "практик"
+}
+
 /** «3 задания», «5 заданий», «1 задание». */
 fun tasksWord(n: Int): String {
     val mod100 = n % 100

@@ -40,6 +40,13 @@ class PracticeViewModel(private val repository: Repository, val practice: Practi
     val formulas = tasks.filter { it.taskType == TaskType.FORMULA && it.answer.isNotBlank() }
     val equations = tasks.filter { it.equation != null && it.coefficients != null }
     val checkableIds = (formulas + equations).map { it.id }
+    val totalCount: Int get() = questions.size + formulas.size + equations.size
+
+    /** Сколько заданий ученик уже заполнил (для полоски прогресса). Правильность не раскрывается. */
+    val filledCount: Int
+        get() = questions.count { answers[it.id].orEmpty().isNotBlank() } +
+            formulas.count { formulaInputs[it.id].orEmpty().isNotBlank() } +
+            equations.count { task -> coefficients(task).any { it.isNotBlank() } }
 
     val answers = mutableStateMapOf<String, String>().apply { questions.forEach { put(it.id, store.draft(it.id)) } }
     val formulaInputs = mutableStateMapOf<String, String>().apply { formulas.forEach { put(it.id, store.draft(it.id)) } }
@@ -52,8 +59,6 @@ class PracticeViewModel(private val repository: Repository, val practice: Practi
     }
     val formulaResults = mutableStateMapOf<String, FormulaCheck>()
     val equationResults = mutableStateMapOf<String, EquationCheck>()
-    val hintsShown = mutableStateMapOf<String, Boolean>()
-    val answersShown = mutableStateMapOf<String, Boolean>()
 
     var sendState by mutableStateOf<SendState>(SendState.Idle)
         private set
@@ -85,12 +90,14 @@ class PracticeViewModel(private val repository: Repository, val practice: Practi
             TaskType.FORMULA -> {
                 val input = formulaInputs[task.id].orEmpty()
                 if (input.isBlank()) return
+                store.addAttempt(task.id)
                 val result = checkFormula(input, task.answer)
                 formulaResults[task.id] = result
                 if (result is FormulaCheck.Correct) store.markSolved(task.id)
             }
             TaskType.EQUATION -> {
                 val equation = task.equation ?: return
+                store.addAttempt(task.id)
                 val result = checkEquation(equation, coefficients(task))
                 equationResults[task.id] = result
                 if (result is EquationCheck.Correct) store.markSolved(task.id)
@@ -106,14 +113,6 @@ class PracticeViewModel(private val repository: Repository, val practice: Practi
         equationInputs[task.id] = updated
         store.saveDraft(task.id, updated.joinToString(SEPARATOR))
         equationResults.remove(task.id)
-    }
-
-    fun toggleHint(taskId: String) {
-        hintsShown[taskId] = hintsShown[taskId] != true
-    }
-
-    fun showAnswer(taskId: String) {
-        answersShown[taskId] = true
     }
 
     /** Сдать работу учителю: ответы на вопросы и всё, что ученик ввёл в заданиях. */
@@ -145,6 +144,7 @@ class PracticeViewModel(private val repository: Repository, val practice: Practi
                     prompt = task.text,
                     answer = if (input.isBlank()) "" else Chem.pretty(Chem.normalize(input)),
                     correct = input.isNotBlank() && checkFormula(input, task.answer) == FormulaCheck.Correct,
+                    attempts = store.attempts(task.id),
                 ),
             )
         }
@@ -158,6 +158,7 @@ class PracticeViewModel(private val repository: Repository, val practice: Practi
                     prompt = equation.pretty(),
                     answer = if (filled) equation.pretty(inputs.map { it.toIntOrNull() ?: 1 }) else "",
                     correct = filled && checkEquation(equation, inputs) == EquationCheck.Correct,
+                    attempts = store.attempts(task.id),
                 ),
             )
         }
@@ -171,8 +172,6 @@ class PracticeViewModel(private val repository: Repository, val practice: Practi
         equations.forEach { equationInputs[it.id] = List(it.equation!!.substances.size) { "" } }
         formulaResults.clear()
         equationResults.clear()
-        hintsShown.clear()
-        answersShown.clear()
         sendState = SendState.Idle
     }
 

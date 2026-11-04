@@ -44,6 +44,7 @@ fun AppNavigation(repository: Repository) {
     LaunchedEffect(user?.id) {
         repository.refreshSession()
         repository.refreshContent()
+        if (repository.user.value?.isTeacher != true) repository.refreshMySubmissions()
     }
 
     NavHost(navController = nav, startDestination = "home") {

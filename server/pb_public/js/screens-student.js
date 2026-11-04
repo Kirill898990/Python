@@ -150,9 +150,9 @@
   // ======================= Главная =======================
   function home() {
     const user = Api.state.user;
-    const all = content.checkableTaskIds();
-    const solved = Api.progress.solved();
-    const solvedCount = all.filter((id) => solved.has(id)).length;
+    // Прогресс по сданным работам: одинаковый на сайте и в приложении, на любом устройстве.
+    const totalPractices = Api.state.content.practices.length;
+    const submitted = new Set(Api.state.mySubmissions.map((s) => s.practice).filter((id) => content.practice(id))).size;
 
     const menuCard = (href, emoji, colorClass, title, subtitle, highlight = false) =>
       h("a", { class: "card card-link" + (highlight ? " card-highlight" : ""), href },
@@ -160,7 +160,9 @@
         h("div", { class: "grow" }, h("div", { class: "card-title" }, title), h("div", { class: "card-sub muted" }, subtitle)),
         icon("chevron"));
 
-    const refreshBtn = button("Обновить", async () => { await Api.refreshContent(); }, { kind: "text" });
+    const refreshBtn = button("Обновить", async () => {
+      await Promise.all([Api.refreshContent(), Api.refreshMySubmissions()]);
+    }, { kind: "text" });
 
     return h("div", { class: "screen" },
       h("div", { class: "home-header" },
@@ -175,10 +177,10 @@
         h("p", null, Api.state.contentError + " Показаны сохранённые задания."), refreshBtn),
       h("img", { class: "banner banner-lab", src: "images/banner-lab.jpg", alt: "" }),
       user && user.isTeacher && menuCard("#/admin/works", "📋", "c-primary", "Панель учителя", "Проверка работ, оценки и задания", true),
-      all.length > 0 && !(user && user.isTeacher) && h("div", { class: "card" },
-        h("div", { class: "card-title" }, solvedCount === all.length ? "Все задания решены! 🎉" : "Твой прогресс"),
-        h("p", { class: "muted small mt" }, `Решено ${solvedCount} из ${all.length} ${Content.tasksWord(all.length)}`),
-        h("div", { class: "mt" }, progressBar(solvedCount / all.length))),
+      totalPractices > 0 && !(user && user.isTeacher) && h("div", { class: "card" },
+        h("div", { class: "card-title" }, submitted === totalPractices ? "Все практики сданы! 🎉" : "Твой прогресс"),
+        h("p", { class: "muted small mt" }, `Сдано ${submitted} из ${totalPractices} ${Content.practicesWord(totalPractices)}`),
+        h("div", { class: "mt" }, progressBar(submitted / totalPractices))),
       sectionLabel("Материалы к занятиям"),
       menuCard("#/subject/biology", "🧬", "c-biology", "Практики по биологии", `${Content.gradeRange("biology")} класс`),
       menuCard("#/subject/chemistry", "⚗️", "c-chemistry", "Практики по химии", `${Content.gradeRange("chemistry")} класс`),
@@ -196,7 +198,7 @@
   // ======================= Предмет: классы и практики =======================
   function subject(params) {
     const key = params.subject === "biology" ? "biology" : "chemistry";
-    const solved = Api.progress.solved();
+    const showStatus = !(Api.state.user && Api.state.user.isTeacher);
     const practices = content.practicesOf(key);
     const colorClass = key === "biology" ? "c-biology" : "c-chemistry";
 
@@ -210,15 +212,18 @@
             h("div", { class: "card-title" }, `${grade} класс`),
             list.length === 0 && h("div", { class: "card-sub" }, "Задания скоро появятся"))),
         list.map((p) => {
-          const ids = content.tasksOf(p.id).filter(Api.isCheckable).map((t) => t.id);
-          const done = ids.filter((id) => solved.has(id)).length;
+          const total = content.tasksOf(p.id).length;
+          const last = showStatus ? Api.lastSubmission(p.id) : null;
+          const status = !showStatus || !last
+            ? `${total} ${Content.tasksWord(total)}` + (showStatus ? " · не сдано" : "")
+            : last.grade > 0 ? `Сдано · оценка ${last.grade}` : "Сдано · на проверке";
           return [
             h("div", { class: "divider" }),
             h("a", { class: "practice-row card-link", href: `#/practice/${p.id}` },
               h("div", { class: "grow" },
                 h("div", { class: "row" }, h("span", { class: "bold" }, p.title), !p.published && h("span", { class: "pill pill-draft" }, "Черновик")),
-                h("div", { class: "card-sub" }, ids.length === 0 ? "Вопросы по теории" : done === ids.length ? "Пройдено ✓" : `Решено ${done} из ${ids.length} ${Content.tasksWord(ids.length)}`),
-                ids.length > 0 && h("div", { class: "mt" }, progressBar(done / ids.length, key === "biology" ? "bio" : ""))),
+                h("div", { class: "card-sub" }, status)),
+              last && last.grade > 0 && gradeBadge(last.grade),
               icon("chevron")),
           ];
         }),
@@ -316,17 +321,23 @@
     const sections = [questions.length && "q", formulas.length && "f", equations.length && "e"].filter(Boolean);
     const num = (s) => sections.indexOf(s) + 1;
 
-    // ----- Прогресс сверху -----
+    // ----- Прогресс сверху: сколько заданий заполнено (правильность не раскрывается) -----
+    const totalCount = questions.length + formulas.length + equations.length;
     const progressBox = h("div");
+    function filledCount() {
+      const filled = (id) => store.draft(id).replace(/\|/g, "").trim() !== "";
+      return questions.filter((q) => filled(q.id)).length +
+        formulas.filter((t) => filled(t.id)).length +
+        equations.filter((x) => filled(x.task.id)).length;
+    }
     function updateProgress() {
-      if (!checkableIds.length) return replace(progressBox);
-      const solved = store.solved();
-      const done = checkableIds.filter((id) => solved.has(id)).length;
+      if (!totalCount) return replace(progressBox);
+      const done = filledCount();
       replace(progressBox,
-        h("p", { class: "muted small" }, done === checkableIds.length
-          ? "Все задания с проверкой решены! 🎉"
-          : `Решено ${done} из ${checkableIds.length} ${Content.tasksWord(checkableIds.length)}`),
-        h("div", { class: "mt" }, progressBar(done / checkableIds.length)));
+        h("p", { class: "muted small" }, done === totalCount
+          ? "Все задания заполнены — можно сдавать работу"
+          : `Заполнено ${done} из ${totalCount} ${Content.tasksWord(totalCount)}`),
+        h("div", { class: "mt" }, progressBar(done / totalCount)));
     }
     updateProgress();
 
@@ -336,36 +347,27 @@
       const card = h("div", { class: "card" + (solvedNow ? " solved" : "") },
         h("div", { class: "row" }, h("span", { class: "task-label grow" }, label), pill),
         children);
-      card.markSolved = () => { pill.hidden = false; card.classList.add("solved"); updateProgress(); };
+      card.markSolved = () => { pill.hidden = false; card.classList.add("solved"); };
       return card;
     };
-
-    const hintToggle = (task, hintBox) => button("Подсказка", () => {
-      if (hintBox.childNodes.length) replace(hintBox);
-      else replace(hintBox, h("div", { class: "hint" }, "💡 " + (task.hint || "У этого задания нет подсказки.")));
-    }, { kind: "text", iconName: "bulb" });
-
-    const showAnswer = (box, answerText) => replace(box,
-      button("Показать ответ", () => replace(box, h("div", { class: "answer-reveal" }, "Ответ: " + answerText)), { kind: "text", iconName: "eye" }));
 
     // ----- Вопросы -----
     const questionCards = questions.map((q, i) => taskCard(`Вопрос ${i + 1}`, null,
       h("p", { class: "mt" }, q.text),
       h("div", { class: "mt" }, field({
         label: "Твой ответ", multiline: true, value: store.draft(q.id),
-        oninput: (v) => store.saveDraft(q.id, v),
+        oninput: (v) => { store.saveDraft(q.id, v); updateProgress(); },
       }))));
 
     // ----- Формулы -----
     const formulaCards = formulas.map((task, i) => {
-      const hintBox = h("div");
       const resultBox = h("div");
-      const answerBox = h("div");
       let card;
       const f = field({
         label: "Формула", value: store.draft(task.id), autocapitalize: "none", inputmode: "latin",
         oninput: (v) => {
           store.saveDraft(task.id, v);
+          updateProgress();
           f.setInvalid(false);
           f.setSupport(v.trim() ? "Получается: " + Chem.pretty(Chem.normalize(v)) : "");
           replace(resultBox);
@@ -378,29 +380,28 @@
       function check() {
         const value = f.input.value;
         if (!value.trim()) return;
+        store.addAttempt(task.id);
         const r = Chem.checkFormula(value, task.answer);
         if (r.kind === "correct") {
           replace(resultBox, feedback("Верно! " + Chem.pretty(task.answer), "success"));
-          replace(answerBox);
           store.markSolved(task.id);
           card.markSolved();
         } else {
           replace(resultBox, feedback(r.message, r.kind === "hint" ? "warning" : "error"));
           f.setInvalid(r.kind === "wrong");
-          if (!answerBox.childNodes.length) showAnswer(answerBox, Chem.pretty(task.answer));
         }
       }
       card = taskCard(`Задание ${num("f")}.${i + 1}`, task.id,
         h("div", { class: "task-name" }, task.text.charAt(0).toUpperCase() + task.text.slice(1)),
         h("div", { class: "mt" }, f),
-        h("div", { class: "task-actions" }, checkBtn, hintToggle(task, hintBox)),
-        hintBox, resultBox, answerBox);
+        h("div", { class: "task-actions" }, checkBtn),
+        resultBox);
       return card;
     });
 
     // ----- Уравнения -----
     const coefsOf = new Map();
-    const equationCards = equations.map(({ task, eq, coefs }, i) => {
+    const equationCards = equations.map(({ task, eq }, i) => {
       const saved = store.draft(task.id).split("|");
       const inputs = eq.substances.map((formula, k) => {
         const input = h("input", {
@@ -411,6 +412,7 @@
         input.addEventListener("input", () => {
           input.value = input.value.replace(/\D/g, "").slice(0, 2);
           store.saveDraft(task.id, inputs.map((x) => x.value).join("|"));
+          updateProgress();
           replace(resultBox);
         });
         input.addEventListener("keydown", (e) => {
@@ -421,16 +423,14 @@
         return input;
       });
       coefsOf.set(task.id, () => inputs.map((x) => x.value));
-      const hintBox = h("div");
       const resultBox = h("div");
-      const answerBox = h("div");
       let card;
       function check() {
         const values = inputs.map((x) => x.value);
+        store.addAttempt(task.id);
         const r = Chem.checkEquation(eq, values);
         if (r.kind === "correct") {
           replace(resultBox, feedback("Верно! " + Chem.prettyEquation(eq, values.map((v) => parseInt(v, 10) || 1)), "success"));
-          replace(answerBox);
           store.markSolved(task.id);
           card.markSolved();
           return;
@@ -442,15 +442,14 @@
         } else {
           replace(resultBox, feedback(r.message, "warning"));
         }
-        if (!answerBox.childNodes.length) showAnswer(answerBox, Chem.prettyEquation(eq, coefs));
       }
       const terms = eq.substances.map((formula, k) => h("span", { class: "term" },
         k > 0 && h("span", { class: "sign" }, k === eq.reactants.length ? "→" : "+"),
         inputs[k], h("span", null, Chem.pretty(formula))));
       card = taskCard(`Задание ${num("e")}.${i + 1}`, task.id,
         h("div", { class: "equation" }, terms),
-        h("div", { class: "task-actions" }, button("Проверить", check), hintToggle(task, hintBox)),
-        hintBox, resultBox, answerBox);
+        h("div", { class: "task-actions" }, button("Проверить", check)),
+        resultBox);
       return card;
     });
 
@@ -464,6 +463,7 @@
           kind: "formula", prompt: t.text,
           answer: input.trim() ? Chem.pretty(Chem.normalize(input)) : "",
           correct: !!input.trim() && Chem.checkFormula(input, t.answer).kind === "correct",
+          attempts: store.attempts(t.id),
         });
       });
       equations.forEach(({ task, eq }) => {
@@ -473,6 +473,7 @@
           kind: "equation", prompt: Chem.prettyEquation(eq),
           answer: filled ? Chem.prettyEquation(eq, values.map((v) => parseInt(v, 10) || 1)) : "",
           correct: filled && Chem.checkEquation(eq, values).kind === "correct",
+          attempts: store.attempts(task.id),
         });
       });
       return items;
@@ -529,7 +530,7 @@
     }
 
     const reset = async () => {
-      const ok = await confirm("Начать заново?", "Отметки о решённых заданиях и черновики ответов по этой практике удалятся.", "Начать заново");
+      const ok = await confirm("Начать заново?", "Черновики ответов и отметки о решённых заданиях по этой практике удалятся. Сданные работы останутся у учителя.", "Начать заново");
       if (!ok) return;
       store.reset(questions.map((q) => q.id).concat(checkableIds));
       App.render();
@@ -610,9 +611,10 @@
       let qn = 0;
       const answers = (s.answers || []).map((a) => {
         const title = a.kind === "question" ? `Вопрос ${++qn}` : a.kind === "formula" ? `Формула: ${a.prompt}` : "Уравнение";
+        const tries = a.attempts > 0 ? ` · попыток: ${a.attempts}` : "";
         const status = a.correct === true
-          ? h("span", { class: "small bold ok" }, "✅ верно")
-          : a.correct === false ? h("span", { class: "small bold err" }, a.answer ? "❌ неверно" : "— не решено") : null;
+          ? h("span", { class: "small bold ok" }, "✅ верно" + tries)
+          : a.correct === false ? h("span", { class: "small bold err" }, a.answer ? "❌ неверно" + tries : "— не решено") : null;
         return h("div", { class: "card" },
           h("div", { class: "row" }, h("span", { class: "task-label grow" }, title), status),
           a.kind !== "formula" && h("p", { class: "small mt" }, a.prompt),

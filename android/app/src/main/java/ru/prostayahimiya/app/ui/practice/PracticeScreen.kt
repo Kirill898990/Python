@@ -101,7 +101,6 @@ fun PracticeScreen(practiceId: String, repository: Repository, onBack: () -> Uni
         factory = PracticeViewModel.factory(repository, practice, content.tasksOf(practice.id)),
     )
     val solved by repository.progress.solved.collectAsState()
-    val solvedCount = vm.checkableIds.count { it in solved }
     // Ученику нельзя копировать задания и вставлять текст в ответы. У учителя ограничений нет.
     val protect = user?.isTeacher != true
     val context = LocalContext.current
@@ -153,7 +152,7 @@ fun PracticeScreen(practiceId: String, repository: Repository, onBack: () -> Uni
                 ),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                item { ProgressHeader(practice.title, solvedCount, vm.checkableIds.size) }
+                item { ProgressHeader(practice.title, vm.filledCount, vm.totalCount) }
                 if (sections.isEmpty()) {
                     item { EmptyBox("📝", "В этой практике пока нет заданий") }
                 }
@@ -247,17 +246,17 @@ fun PracticeScreen(practiceId: String, repository: Repository, onBack: () -> Uni
 }
 
 @Composable
-private fun ProgressHeader(title: String, solved: Int, total: Int) {
+private fun ProgressHeader(title: String, filled: Int, total: Int) {
     Column(Modifier.padding(bottom = 4.dp)) {
         Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         if (total > 0) {
             Text(
-                if (solved == total) "Все задания с проверкой решены! 🎉" else "Решено $solved из $total ${tasksWord(total)}",
+                if (filled == total) "Все задания заполнены — можно сдавать работу" else "Заполнено $filled из $total ${tasksWord(total)}",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
             )
-            LinearProgressIndicator(progress = { solved.toFloat() / total }, modifier = Modifier.fillMaxWidth())
+            LinearProgressIndicator(progress = { filled.toFloat() / total }, modifier = Modifier.fillMaxWidth())
         }
     }
 }
@@ -423,22 +422,12 @@ private fun FormulaTaskCard(number: String, task: Task, solved: Boolean, vm: Pra
             keyboardActions = KeyboardActions(onDone = { vm.check(task) }),
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
         )
-        TaskActions(
-            canCheck = input.isNotBlank(),
-            onCheck = { vm.check(task) },
-            onHint = { vm.toggleHint(task.id) },
-        )
-        if (vm.hintsShown[task.id] == true) HintBox(task.hint.ifBlank { "У этого задания нет подсказки." })
+        CheckButton(enabled = input.isNotBlank()) { vm.check(task) }
         when (result) {
             FormulaCheck.Correct -> Feedback("Верно! ${Chem.pretty(task.answer)}", FeedbackKind.Success)
             is FormulaCheck.Hint -> Feedback(result.message, FeedbackKind.Warning)
             is FormulaCheck.Wrong -> Feedback(result.message, FeedbackKind.Error)
             null -> Unit
-        }
-        if (result != null && result != FormulaCheck.Correct) {
-            ShowAnswer(shown = vm.answersShown[task.id] == true, answer = Chem.pretty(task.answer)) {
-                vm.showAnswer(task.id)
-            }
         }
     }
 }
@@ -480,8 +469,7 @@ private fun EquationTaskCard(number: String, task: Task, solved: Boolean, vm: Pr
                 }
             }
         }
-        TaskActions(canCheck = true, onCheck = { vm.check(task) }, onHint = { vm.toggleHint(task.id) })
-        if (vm.hintsShown[task.id] == true) HintBox(task.hint.ifBlank { "У этого задания нет подсказки." })
+        CheckButton(enabled = true) { vm.check(task) }
         when (result) {
             EquationCheck.Correct -> Feedback("Верно! ${equation.pretty(inputs.map { it.toIntOrNull() ?: 1 })}", FeedbackKind.Success)
             is EquationCheck.NotReduced -> Feedback(
@@ -496,11 +484,6 @@ private fun EquationTaskCard(number: String, task: Task, solved: Boolean, vm: Pr
             )
             is EquationCheck.Invalid -> Feedback(result.message, FeedbackKind.Warning)
             null -> Unit
-        }
-        if (result != null && result != EquationCheck.Correct) {
-            ShowAnswer(shown = vm.answersShown[task.id] == true, answer = equation.pretty(task.coefficients)) {
-                vm.showAnswer(task.id)
-            }
         }
     }
 }
@@ -541,51 +524,10 @@ private fun CoefficientField(
     )
 }
 
+/** Кнопка «Проверить». Подсказок и готовых ответов нет: ученик решает сам. */
 @Composable
-private fun TaskActions(canCheck: Boolean, onCheck: () -> Unit, onHint: () -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
-        Button(onClick = onCheck, enabled = canCheck) { Text("Проверить") }
-        Spacer(Modifier.width(8.dp))
-        TextButton(onClick = onHint) {
-            Icon(painterResource(R.drawable.ic_lightbulb), contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(6.dp))
-            Text("Подсказка")
-        }
-    }
-}
-
-@Composable
-private fun HintBox(text: String) {
-    Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.tertiaryContainer,
-        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-    ) {
-        Text(
-            "💡 $text",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onTertiaryContainer,
-            modifier = Modifier.padding(12.dp),
-        )
-    }
-}
-
-@Composable
-private fun ShowAnswer(shown: Boolean, answer: String, onShow: () -> Unit) {
-    if (shown) {
-        Text(
-            "Ответ: $answer",
-            style = MaterialTheme.typography.bodyLarge,
-            fontWeight = FontWeight.Medium,
-            modifier = Modifier.padding(top = 8.dp),
-        )
-    } else {
-        TextButton(onClick = onShow, modifier = Modifier.padding(top = 4.dp)) {
-            Icon(painterResource(R.drawable.ic_visibility), contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(6.dp))
-            Text("Показать ответ")
-        }
-    }
+private fun CheckButton(enabled: Boolean, onCheck: () -> Unit) {
+    Button(onClick = onCheck, enabled = enabled, modifier = Modifier.padding(top = 8.dp)) { Text("Проверить") }
 }
 
 private enum class FeedbackKind { Success, Warning, Error }

@@ -273,9 +273,6 @@
           multiline: t.type === "question", value: t.text, autocapitalize: t.type === "equation" ? "none" : "sentences",
           oninput: (v) => { t.text = v; validate(); },
         });
-        const hintField = t.type === "question" ? null : field({
-          label: "Подсказка (необязательно)", multiline: true, rows: 2, value: t.hint, oninput: (v) => { t.hint = v; },
-        });
 
         function validate() {
           const message = Chem.validateTask(t.type, t.text, t.answer);
@@ -294,7 +291,8 @@
         async function save() {
           if (Chem.validateTask(t.type, t.text, t.answer)) return;
           // Приводим к единому виду: «Al+O2→Al2O3» станет «Al + O2 = Al2O3», формула без пробелов.
-          if (t.type === "question") { t.answer = ""; t.hint = ""; }
+          if (t.type === "question") t.answer = "";
+          t.hint = ""; // подсказок больше нет: ученики решают сами
           if (t.type === "formula") t.answer = Chem.normalize(t.answer);
           if (t.type === "equation") {
             const eq = Chem.parseEquation(t.text);
@@ -316,7 +314,7 @@
         validate();
         return {
           title: (task.id ? "Задание: " : "Новое задание: ") + info.title.toLowerCase(),
-          body: [textField, answerField, hintField, error],
+          body: [textField, answerField, error],
           actions: [button("Отмена", close, { kind: "text" }), saveBtn],
         };
       }, { wide: true });

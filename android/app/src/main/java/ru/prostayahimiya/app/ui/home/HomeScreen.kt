@@ -63,7 +63,7 @@ import ru.prostayahimiya.app.ui.components.cardBorder
 import ru.prostayahimiya.app.ui.components.cardColors
 import ru.prostayahimiya.app.ui.components.colors
 import ru.prostayahimiya.app.ui.components.openLink
-import ru.prostayahimiya.app.ui.components.tasksWord
+import ru.prostayahimiya.app.ui.components.practicesWord
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -77,9 +77,10 @@ fun HomeScreen(
     val user by repository.user.collectAsState()
     val content by repository.content.collectAsState()
     val contentError by repository.contentError.collectAsState()
-    val solved by repository.progress.solved.collectAsState()
-    val allTasks = content.checkableTaskIds
-    val solvedCount = allTasks.count { it in solved }
+    val submissions by repository.mySubmissionsState.collectAsState()
+    // Прогресс по сданным работам: одинаковый на сайте и в приложении.
+    val submittedPractices = submissions.map { it.practice }.filter { content.practice(it) != null }.toSet().size
+    val totalPractices = content.practices.size
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var refreshing by remember { mutableStateOf(false) }
@@ -88,6 +89,7 @@ fun HomeScreen(
         scope.launch {
             refreshing = true
             repository.refreshContent()
+            if (user?.isTeacher != true) repository.refreshMySubmissions()
             refreshing = false
         }
     }
@@ -135,8 +137,8 @@ fun HomeScreen(
                         )
                     }
                 }
-                if (allTasks.isNotEmpty() && user?.isTeacher != true) {
-                    item { ProgressCard(solvedCount, allTasks.size) }
+                if (totalPractices > 0 && user?.isTeacher != true) {
+                    item { ProgressCard(submittedPractices, totalPractices) }
                 }
                 item { SectionLabel("Материалы к занятиям") }
                 item {
@@ -264,12 +266,12 @@ private fun ProgressCard(solved: Int, total: Int) {
     Card(colors = cardColors(), border = cardBorder()) {
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
             Text(
-                if (solved == total) "Все задания решены! 🎉" else "Твой прогресс",
+                if (solved == total) "Все практики сданы! 🎉" else "Твой прогресс",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
-                "Решено $solved из $total ${tasksWord(total)}",
+                "Сдано $solved из $total ${practicesWord(total)}",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 2.dp, bottom = 10.dp),

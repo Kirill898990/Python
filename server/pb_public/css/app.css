@@ -391,8 +391,6 @@ p { margin: 0; }
 .feedback-success { background: var(--primary-container); color: var(--on-primary-container); }
 .feedback-warning { background: var(--secondary-container); color: var(--on-secondary-container); }
 .feedback-error { background: var(--error-container); color: var(--on-error-container); }
-.hint { margin-top: 8px; padding: 12px; border-radius: 12px; font-size: 14px; background: var(--tertiary-container); color: var(--on-tertiary-container); }
-.answer-reveal { margin-top: 8px; font-weight: 500; }
 .task-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
 .equation { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 6px; margin: 8px 0 4px; }
 .term { display: inline-flex; align-items: center; gap: 4px; font-size: 22px; }

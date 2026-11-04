@@ -19,7 +19,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -41,7 +40,9 @@ import ru.prostayahimiya.app.data.Content
 import ru.prostayahimiya.app.data.Practice
 import ru.prostayahimiya.app.data.Repository
 import ru.prostayahimiya.app.data.Subject
+import ru.prostayahimiya.app.data.Submission
 import ru.prostayahimiya.app.ui.components.BackTopBar
+import ru.prostayahimiya.app.ui.components.GradeBadge
 import ru.prostayahimiya.app.ui.components.cardBorder
 import ru.prostayahimiya.app.ui.components.cardColors
 import ru.prostayahimiya.app.ui.components.colors
@@ -58,7 +59,8 @@ fun SubjectScreen(
     onOpenPractice: (String) -> Unit,
 ) {
     val content by repository.content.collectAsState()
-    val solved by repository.progress.solved.collectAsState()
+    val user by repository.user.collectAsState()
+    val submissions by repository.mySubmissionsState.collectAsState()
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     val title = when (subject) {
         Subject.CHEMISTRY -> "Практики по химии"
@@ -85,10 +87,10 @@ fun SubjectScreen(
                     subject = subject,
                     grade = grade,
                     practices = practices.filter { it.grade == grade },
-                    progress = { practice ->
-                        val ids = content.tasksOf(practice.id).filter { it.isCheckable }.map { it.id }
-                        ids.count { it in solved } to ids.size
-                    },
+                    taskCount = { practice -> content.tasksOf(practice.id).size },
+                    // Последняя сданная работа по практике (список уже отсортирован: новые сверху).
+                    lastSubmission = { practice -> submissions.firstOrNull { it.practice == practice.id } },
+                    showStatus = user?.isTeacher != true,
                     onOpenPractice = onOpenPractice,
                 )
             }
@@ -101,7 +103,9 @@ private fun GradeCard(
     subject: Subject,
     grade: Int,
     practices: List<Practice>,
-    progress: (Practice) -> Pair<Int, Int>,
+    taskCount: (Practice) -> Int,
+    lastSubmission: (Practice) -> Submission?,
+    showStatus: Boolean,
     onOpenPractice: (String) -> Unit,
 ) {
     val context = LocalContext.current
@@ -134,7 +138,8 @@ private fun GradeCard(
             }
 
             practices.forEach { practice ->
-                val (done, total) = progress(practice)
+                val total = taskCount(practice)
+                val last = lastSubmission(practice)
                 HorizontalDivider(Modifier.padding(top = 12.dp), color = MaterialTheme.colorScheme.outlineVariant)
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -153,20 +158,16 @@ private fun GradeCard(
                         }
                         Text(
                             when {
-                                total == 0 -> "Вопросы по теории"
-                                done == total -> "Пройдено ✓"
-                                else -> "Решено $done из $total ${tasksWord(total)}"
+                                !showStatus || last == null -> "$total ${tasksWord(total)}" + if (showStatus) " · не сдано" else ""
+                                last.isGraded -> "Сдано · оценка ${last.grade}"
+                                else -> "Сдано · на проверке"
                             },
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        if (total > 0) {
-                            LinearProgressIndicator(
-                                progress = { done.toFloat() / total },
-                                color = colors.accent,
-                                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                            )
-                        }
+                    }
+                    if (showStatus && last != null && last.isGraded) {
+                        GradeBadge(last.grade, size = 36.dp)
                     }
                     Icon(
                         painterResource(R.drawable.ic_chevron_right),
