@@ -15,11 +15,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -28,15 +31,23 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogProperties
+import kotlinx.coroutines.launch
 import ru.prostayahimiya.app.R
 import ru.prostayahimiya.app.data.Content
+import ru.prostayahimiya.app.data.Note
 import ru.prostayahimiya.app.data.Practice
 import ru.prostayahimiya.app.data.Repository
 import ru.prostayahimiya.app.data.Subject
@@ -64,6 +75,8 @@ fun SubjectScreen(
     val user by repository.user.collectAsState()
     val submissions by repository.mySubmissionsState.collectAsState()
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
+    var editingNote by rememberSaveable { mutableStateOf<Int?>(null) }
+    val scope = rememberCoroutineScope()
     val title = when (subject) {
         Subject.CHEMISTRY -> "Практики по химии"
         Subject.BIOLOGY -> "Практики по биологии"
@@ -89,7 +102,10 @@ fun SubjectScreen(
                     subject = subject,
                     grade = grade,
                     practices = practices.filter { it.grade == grade },
-                    taskCount = { practice -> content.tasksOf(practice.id).size },
+                    taskCount = { practice -> content.tasksFor(practice.id, user).size },
+                    note = content.noteFor(subject, grade),
+                    isTeacher = user?.isTeacher == true,
+                    onEditNote = { editingNote = grade },
                     // Последняя сданная работа по практике (список уже отсортирован: новые сверху).
                     lastSubmission = { practice -> submissions.firstOrNull { it.practice == practice.id } },
                     showStatus = user?.isTeacher != true,
@@ -97,6 +113,20 @@ fun SubjectScreen(
                 )
             }
         }
+    }
+
+    editingNote?.let { grade ->
+        NoteDialog(
+            title = "Заметка к теории · $grade класс",
+            initial = content.noteFor(subject, grade)?.text.orEmpty(),
+            onDismiss = { editingNote = null },
+            onSave = { text ->
+                scope.launch {
+                    runCatching { repository.saveNote(subject, grade, text) }
+                    editingNote = null
+                }
+            },
+        )
     }
 }
 
@@ -108,6 +138,9 @@ private fun GradeCard(
     taskCount: (Practice) -> Int,
     lastSubmission: (Practice) -> Submission?,
     showStatus: Boolean,
+    note: Note?,
+    isTeacher: Boolean,
+    onEditNote: () -> Unit,
     onOpenPractice: (String) -> Unit,
 ) {
     val context = LocalContext.current
@@ -195,6 +228,23 @@ private fun GradeCard(
                 }
             }
 
+            if (note != null) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.tertiaryContainer,
+                    modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp),
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text("📝 Заметка учителя", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                        Text(note.text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onTertiaryContainer, modifier = Modifier.padding(top = 4.dp))
+                    }
+                }
+            }
+            if (isTeacher) {
+                TextButton(onClick = onEditNote, modifier = Modifier.padding(horizontal = 4.dp)) {
+                    Text(if (note != null) "Изменить заметку" else "Добавить заметку к теории")
+                }
+            }
             if (theoryUrl != null) {
                 TextButton(onClick = { context.openLink(theoryUrl) }, modifier = Modifier.padding(horizontal = 4.dp)) {
                     Text("Теория в ЯКлассе")
@@ -219,4 +269,30 @@ fun DraftChip() {
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
         )
     }
+}
+
+
+/** Окно заметки учителя. Пустая заметка удаляется. */
+@Composable
+private fun NoteDialog(title: String, initial: String, onDismiss: () -> Unit, onSave: (String) -> Unit) {
+    var text by rememberSaveable { mutableStateOf(initial) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier.padding(horizontal = 16.dp),
+        title = { Text(title) },
+        text = {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it.take(5000) },
+                label = { Text("Заметка для учеников") },
+                supportingText = { Text("Например: что повторить к контрольной. Пустая заметка удалится.") },
+                minLines = 4,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        },
+        confirmButton = { TextButton(onClick = { onSave(text) }) { Text("Сохранить") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
+    )
 }

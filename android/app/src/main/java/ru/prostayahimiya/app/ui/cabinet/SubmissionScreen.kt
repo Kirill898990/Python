@@ -124,7 +124,10 @@ private fun SubmissionContent(
                         fontWeight = FontWeight.Bold,
                     )
                 }
-                Text(current.practiceTitle, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    current.practiceTitle + if (current.variant > 0) " · вариант ${current.variant}" else "",
+                    style = MaterialTheme.typography.titleMedium,
+                )
                 Text(
                     buildString {
                         append("Сдано ${formatServerDate(current.created)}")

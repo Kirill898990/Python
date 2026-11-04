@@ -80,6 +80,7 @@ fun HomeScreen(
     onOpenAdmin: () -> Unit,
     onOpenChat: () -> Unit,
     onOpenPractice: (String) -> Unit,
+    onOpenReference: () -> Unit,
 ) {
     val user by repository.user.collectAsState()
     val content by repository.content.collectAsState()
@@ -199,6 +200,15 @@ fun HomeScreen(
                         title = "Теоретическая часть",
                         subtitle = "Учебники ЯКласса по классам",
                         onClick = onOpenTheory,
+                    )
+                }
+                item {
+                    MenuCard(
+                        emoji = "🧪",
+                        badgeColor = MaterialTheme.colorScheme.primaryContainer,
+                        title = "Справочник",
+                        subtitle = "Таблица Менделеева и таблица растворимости",
+                        onClick = onOpenReference,
                     )
                 }
                 item {
