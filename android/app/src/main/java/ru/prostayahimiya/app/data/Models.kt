@@ -22,6 +22,10 @@ data class User(
     val isTeacher: Boolean = false,
     /** Когда ученик зарегистрировался: по этому порядку раздаются варианты. */
     val created: String = "",
+    /** Учитель ученика. */
+    val teacher: String = "",
+    /** Зарегистрировался как учитель и ждёт подтверждения администратора. */
+    val wantsTeacher: Boolean = false,
 )
 
 @Serializable
@@ -254,8 +258,12 @@ data class ClassCode(
     val active: Boolean = false,
 )
 
+/** Учитель в списке при регистрации. codeRequired — регистрироваться к нему можно только по коду класса. */
 @Serializable
-data class RegistrationInfo(val codeRequired: Boolean = false)
+data class TeacherInfo(val id: String = "", val name: String = "", val codeRequired: Boolean = false)
+
+@Serializable
+data class RegistrationInfo(val teachers: List<TeacherInfo> = emptyList(), val codeRequired: Boolean = false)
 
 @Serializable
 data class VariantsResponse(val variants: Map<String, Int> = emptyMap())

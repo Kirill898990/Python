@@ -88,11 +88,27 @@ class Repository(private val context: Context) {
         refreshContent()
     }
 
-    /** Нужен ли код класса для регистрации (его включает учитель). Без связи считаем, что не нужен. */
+    /** Имя учителя ученика (для личного кабинета). */
+    suspend fun teacherName(id: String): String = registrationInfo().teachers.firstOrNull { it.id == id }?.name.orEmpty()
+
+    /** Подтверждённые учителя для регистрации и нужен ли каждому код класса. Без связи — пустой список. */
     suspend fun registrationInfo(): RegistrationInfo =
         runCatching { api.call("GET", api.url("api/registration-info"), RegistrationInfo.serializer()) }.getOrDefault(RegistrationInfo())
 
-    suspend fun register(name: String, group: String, username: String, password: String, passwordConfirm: String, classCode: String = "") {
+    /**
+     * Регистрация. Ученик указывает учителя (и код класса, если учитель его требует),
+     * учитель — wantsTeacher = true и ждёт подтверждения администратора.
+     */
+    suspend fun register(
+        name: String,
+        group: String,
+        username: String,
+        password: String,
+        passwordConfirm: String,
+        classCode: String = "",
+        teacher: String = "",
+        wantsTeacher: Boolean = false,
+    ) {
         api.send(
             "POST",
             api.url("api/collections/users/records"),
@@ -100,6 +116,8 @@ class Repository(private val context: Context) {
                 put("name", name.trim())
                 put("group", group.trim().uppercase())
                 put("classCode", classCode.trim().uppercase())
+                put("teacher", teacher)
+                put("wantsTeacher", wantsTeacher)
                 put("username", normalizeUsername(username))
                 put("password", password)
                 put("passwordConfirm", passwordConfirm)
@@ -314,6 +332,8 @@ class Repository(private val context: Context) {
             put("published", practice.published)
             put("classes", buildJsonArray { practice.classes.forEach { add(it) } })
             put("deadline", practice.deadline)
+            // Новая практика принадлежит этому учителю.
+            if (practice.id.isEmpty()) put("owner", _user.value?.id.orEmpty())
         }
         val saved = save("practices", practice.id, body, Practice.serializer())
         _content.value = _content.value.copy(practices = _content.value.practices.filter { it.id != saved.id } + saved)
@@ -424,6 +444,7 @@ class Repository(private val context: Context) {
                     put("subject", subject.key)
                     put("grade", grade)
                     put("text", clean)
+                    put("owner", _user.value?.id.orEmpty())
                 },
             )
         }
@@ -449,6 +470,7 @@ class Repository(private val context: Context) {
                 put("group", group.trim().uppercase())
                 put("code", code)
                 put("active", true)
+                put("owner", _user.value?.id.orEmpty())
             },
         )
     }.getOrThrow()
@@ -511,6 +533,7 @@ class Repository(private val context: Context) {
                     put("author", me.id)
                     put("authorName", me.name)
                     put("fromTeacher", me.isTeacher)
+                    put("teacher", if (me.isTeacher) me.id else me.teacher)
                     put("kind", room.kind)
                     put("group", if (room.isClass) room.key else "")
                     put("student", if (room.isClass) "" else room.key)

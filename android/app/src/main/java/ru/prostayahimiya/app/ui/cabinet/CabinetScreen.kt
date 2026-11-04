@@ -24,9 +24,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -57,6 +59,11 @@ fun CabinetScreen(repository: Repository, onBack: () -> Unit, onOpenSubmission: 
     val user by repository.user.collectAsState()
     val loader = rememberLoader(user?.id) { repository.mySubmissions() }
     var confirmLogout by rememberSaveable { mutableStateOf(false) }
+    // Имя учителя ученика — из списка учителей на сервере.
+    var teacherName by remember { mutableStateOf("") }
+    LaunchedEffect(user?.teacher) {
+        teacherName = user?.teacher?.takeIf { it.isNotEmpty() && user?.isTeacher != true }?.let { repository.teacherName(it) }.orEmpty()
+    }
 
     Scaffold(
         topBar = { BackTopBar("Личный кабинет", onBack) },
@@ -72,7 +79,7 @@ fun CabinetScreen(repository: Repository, onBack: () -> Unit, onOpenSubmission: 
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.fillMaxSize(),
             ) {
-                user?.let { item { ProfileCard(it) } }
+                user?.let { item { ProfileCard(it, teacherName) } }
 
                 item { SectionLabel("Мои работы") }
                 when (val state = loader.state) {
@@ -112,7 +119,7 @@ fun CabinetScreen(repository: Repository, onBack: () -> Unit, onOpenSubmission: 
 }
 
 @Composable
-private fun ProfileCard(user: User) {
+private fun ProfileCard(user: User, teacherName: String) {
     Card(colors = cardColors(), border = cardBorder()) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(16.dp)) {
             Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primary, modifier = Modifier.size(56.dp)) {
@@ -135,6 +142,13 @@ private fun ProfileCard(user: User) {
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                if (teacherName.isNotEmpty()) {
+                    Text(
+                        "Учитель: $teacherName",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
     }

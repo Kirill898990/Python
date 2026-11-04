@@ -2,6 +2,7 @@ package ru.prostayahimiya.app.ui.auth
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,6 +19,12 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -26,6 +33,7 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -36,9 +44,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import ru.prostayahimiya.app.ui.components.openLink
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.material3.TextButton
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -50,7 +56,9 @@ import kotlinx.coroutines.launch
 import ru.prostayahimiya.app.data.ApiException
 import ru.prostayahimiya.app.data.Content
 import ru.prostayahimiya.app.data.Repository
+import ru.prostayahimiya.app.data.TeacherInfo
 import ru.prostayahimiya.app.ui.components.EmojiBadge
+import ru.prostayahimiya.app.ui.components.openLink
 
 /** Вход и регистрация. После успешного входа навигация сама откроет главный экран. */
 @Composable
@@ -59,11 +67,20 @@ fun AuthScreen(repository: Repository) {
     var name by rememberSaveable { mutableStateOf("") }
     var group by rememberSaveable { mutableStateOf("") }
     var classCode by rememberSaveable { mutableStateOf("") }
-    // Если учитель создал коды классов, вместо «Класс» ученик вводит код, а класс сервер возьмёт из кода.
-    var codeRequired by rememberSaveable { mutableStateOf(false) }
+    var asTeacher by rememberSaveable { mutableStateOf(false) }
+    var teacherId by rememberSaveable { mutableStateOf("") }
+    // Учителя появляются в списке, когда администратор их подтвердит. Если у учителя есть коды классов,
+    // вместо «Класс» ученик вводит код, а класс сервер возьмёт из кода.
+    var teachers by remember { mutableStateOf<List<TeacherInfo>?>(null) }
     LaunchedEffect(registerMode) {
-        if (registerMode) codeRequired = repository.registrationInfo().codeRequired
+        if (registerMode) {
+            teachers = repository.registrationInfo().teachers
+            if (teacherId.isEmpty()) teachers?.singleOrNull()?.let { teacherId = it.id }
+        }
     }
+    val student = registerMode && !asTeacher
+    val selectedTeacher = teachers?.firstOrNull { it.id == teacherId }
+    val codeRequired = selectedTeacher?.codeRequired == true
     var username by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
     var password2 by rememberSaveable { mutableStateOf("") }
@@ -78,8 +95,9 @@ fun AuthScreen(repository: Repository) {
         error = null
         fieldErrors = buildMap {
             if (registerMode && name.trim().length < 2) put("name", "Впиши имя и фамилию")
-            if (registerMode && !codeRequired && group.isBlank()) put("group", "Впиши класс, например 8Б")
-            if (registerMode && codeRequired && classCode.isBlank()) put("classCode", "Впиши код класса, который дал учитель")
+            if (student && teacherId.isEmpty()) put("teacher", "Выбери своего учителя")
+            if (student && teacherId.isNotEmpty() && !codeRequired && group.isBlank()) put("group", "Впиши класс, например 8Б")
+            if (student && codeRequired && classCode.isBlank()) put("classCode", "Впиши код класса, который дал учитель")
             if (username.trim().length < 3) put("username", "Логин: не меньше 3 символов")
             if (password.length < 6) put("password", "Пароль: не меньше 6 символов")
             if (registerMode && password2 != password) put("passwordConfirm", "Пароли не совпадают")
@@ -89,10 +107,15 @@ fun AuthScreen(repository: Repository) {
         scope.launch {
             try {
                 if (registerMode) {
-                    repository.register(
-                        name, if (codeRequired) "" else group, username, password, password2,
-                        classCode = if (codeRequired) classCode else "",
-                    )
+                    if (asTeacher) {
+                        repository.register(name, "", username, password, password2, wantsTeacher = true)
+                    } else {
+                        repository.register(
+                            name, if (codeRequired) "" else group, username, password, password2,
+                            classCode = if (codeRequired) classCode else "",
+                            teacher = teacherId,
+                        )
+                    }
                 } else {
                     repository.login(username, password)
                 }
@@ -149,9 +172,22 @@ fun AuthScreen(repository: Repository) {
                 }
 
                 if (registerMode) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(selected = !asTeacher, onClick = { asTeacher = false; fieldErrors = emptyMap() }, label = { Text("🎒 Я ученик") })
+                        FilterChip(selected = asTeacher, onClick = { asTeacher = true; fieldErrors = emptyMap() }, label = { Text("👩‍🏫 Я учитель") })
+                    }
                     Field(
-                        value = name, onChange = { name = it }, label = "Имя и фамилия", placeholder = "Петя Иванов",
+                        value = name, onChange = { name = it }, label = "Имя и фамилия",
+                        placeholder = if (asTeacher) "Ирина Петровна Смирнова" else "Петя Иванов",
                         error = fieldErrors["name"], capitalization = KeyboardCapitalization.Words,
+                    )
+                }
+                if (student) {
+                    TeacherPicker(
+                        teachers = teachers,
+                        selected = selectedTeacher,
+                        error = fieldErrors["teacher"],
+                        onSelect = { teacherId = it.id; fieldErrors = fieldErrors - "teacher" },
                     )
                     if (codeRequired) {
                         Field(
@@ -161,7 +197,7 @@ fun AuthScreen(repository: Repository) {
                             supporting = "Код даёт учитель. По нему ты попадёшь в свой класс",
                             capitalization = KeyboardCapitalization.Characters,
                         )
-                    } else {
+                    } else if (teacherId.isNotEmpty()) {
                         Field(
                             value = group, onChange = { group = it.uppercase() }, label = "Класс", placeholder = "8Б",
                             error = fieldErrors["group"], capitalization = KeyboardCapitalization.Characters,
@@ -203,14 +239,15 @@ fun AuthScreen(repository: Repository) {
                             modifier = Modifier.size(20.dp),
                         )
                     } else {
-                        Text(if (registerMode) "Зарегистрироваться" else "Войти")
+                        Text(if (!registerMode) "Войти" else if (asTeacher) "Отправить заявку учителя" else "Зарегистрироваться")
                     }
                 }
                 Text(
-                    if (registerMode) {
-                        "Учителю нужно зарегистрироваться так же, а потом администратор сервера даст ему права учителя."
-                    } else {
-                        "Забыл пароль? Попроси учителя сбросить его."
+                    when {
+                        !registerMode -> "Забыл пароль? Попроси учителя сбросить его."
+                        asTeacher -> "После регистрации администратор подтвердит, что вы учитель. Тогда вас можно будет выбрать " +
+                            "в списке учителей, а у вас появится панель учителя."
+                        else -> "Нет своего учителя в списке? Значит, он ещё не зарегистрировался — попроси его."
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -260,4 +297,92 @@ private fun Field(
         keyboardActions = KeyboardActions(onDone = { onDone() }),
         modifier = Modifier.fillMaxWidth(),
     )
+}
+
+
+/** Выбор учителя из списка подтверждённых учителей. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TeacherPicker(teachers: List<TeacherInfo>?, selected: TeacherInfo?, error: String?, onSelect: (TeacherInfo) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it && !teachers.isNullOrEmpty() }) {
+        OutlinedTextField(
+            value = selected?.name.orEmpty(),
+            onValueChange = {},
+            readOnly = true,
+            label = { Text("Учитель") },
+            placeholder = { Text(if (teachers == null) "Загружаем список…" else if (teachers.isEmpty()) "Учителей пока нет" else "Выбери учителя") },
+            supportingText = { Text(error ?: "Учитель, у которого ты учишься") },
+            isError = error != null,
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            teachers.orEmpty().forEach { t ->
+                DropdownMenuItem(text = { Text(t.name) }, onClick = { onSelect(t); expanded = false })
+            }
+        }
+    }
+}
+
+/**
+ * Учитель зарегистрировался, но администратор ещё не подтвердил его.
+ * Подтверждение — галочка isTeacher в веб-панели сервера; после неё «Проверить ещё раз» откроет панель учителя.
+ */
+@Composable
+fun PendingTeacherScreen(repository: Repository) {
+    val scope = rememberCoroutineScope()
+    var checking by remember { mutableStateOf(false) }
+    var stillWaiting by remember { mutableStateOf(false) }
+    Scaffold(containerColor = MaterialTheme.colorScheme.background) { padding ->
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp, vertical = 48.dp),
+        ) {
+            EmojiBadge("⏳", MaterialTheme.colorScheme.primary, size = 72.dp)
+            Text("Заявка отправлена", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text(
+                "Администратор проверит, что вы учитель, и подтвердит заявку. После этого ученики смогут выбрать вас " +
+                    "при регистрации, а у вас появится панель учителя: свои практики, классы, журнал и чат.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.widthIn(max = 480.dp),
+            )
+            if (stillWaiting) {
+                Text(
+                    "Пока не подтверждено. Попробуйте позже.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = {
+                    if (checking) return@Button
+                    checking = true
+                    scope.launch {
+                        repository.refreshSession()
+                        stillWaiting = repository.user.value?.isTeacher != true
+                        checking = false
+                    }
+                },
+                enabled = !checking,
+                modifier = Modifier.widthIn(max = 480.dp).fillMaxWidth().height(52.dp),
+            ) {
+                if (checking) {
+                    CircularProgressIndicator(strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(20.dp))
+                } else {
+                    Text("Проверить ещё раз")
+                }
+            }
+            TextButton(onClick = repository::logout) { Text("Выйти") }
+        }
+    }
 }
