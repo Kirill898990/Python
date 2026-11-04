@@ -400,6 +400,31 @@
     return img;
   }
 
+  /**
+   * Для учителя: кто из учеников какой вариант решает (по классам, которым задана практика).
+   * Вариант считается так же, как у ученика, поэтому список совпадает с тем, что видят ученики.
+   */
+  function variantsOfStudents(p, count) {
+    return Screens.asyncBlock(() => Api.students(), (students) => {
+      const kids = students.filter((st) => Content.isAssigned(p, st.group))
+        .sort((a, b) => a.group.localeCompare(b.group, "ru", { numeric: true }) || a.name.localeCompare(b.name, "ru"));
+      if (!kids.length) return h("p", { class: "small muted" }, "Ученики этой параллели ещё не зарегистрировались.");
+      const groups = [...new Set(kids.map((st) => st.group))];
+      const variants = content.variantsOf(p.id, students);
+      return h("details", { class: "card variants-card" },
+        h("summary", { class: "bold" }, "Кто какой вариант решает"),
+        groups.map((g) => h("div", { class: "mt" },
+          h("div", { class: "small bold" }, g ? `${g} класс` : "Без класса"),
+          Array.from({ length: count }, (_, i) => {
+            const names = kids.filter((st) => st.group === g && variants.get(st.id) === i + 1).map((st) => st.name);
+            return h("div", { class: "variant-line" },
+              h("span", { class: "pill variant-pill" }, `Вариант ${i + 1}`),
+              h("span", { class: "small" }, names.length ? names.join(", ") : "—"));
+          }))),
+        h("p", { class: "tiny muted mt" }, "Варианты раздаются по очереди внутри класса в порядке регистрации: 1, 2, 1, 2… У того, кто уже начал, вариант не меняется."));
+    });
+  }
+
   /** Какой вариант учитель смотрит в каждой практике. */
   const teacherVariant = new Map();
 
@@ -414,7 +439,7 @@
     const variantCount = content.variantCount(p.id);
     const isTeacherView = !!(user && user.isTeacher);
     const variant = !variantCount ? 0
-      : isTeacherView ? Math.min(teacherVariant.get(p.id) || 1, variantCount) : content.variantFor(p.id, user.id);
+      : isTeacherView ? Math.min(teacherVariant.get(p.id) || 1, variantCount) : content.variantFor(p.id);
     const all = content.tasksForVariant(p.id, variant).filter((t) => t.type !== "equation" || Chem.parseEquation(t.text));
     const byType = (type) => all.filter((t) => t.type === type);
     const sections = SECTIONS.filter((s) => byType(s.type).length);
@@ -726,9 +751,12 @@
         menuButton([{ label: "Начать заново", onclick: reset }])),
       h("h2", { class: "home-title" }, p.title),
       variantCount > 0 && (isTeacherView
-        ? h("div", { class: "row-wrap" },
-          h("span", { class: "small muted" }, "Вариант:"),
-          Array.from({ length: variantCount }, (_, i) => UI.chip(`Вариант ${i + 1}`, variant === i + 1, () => { teacherVariant.set(p.id, i + 1); App.render(); })))
+        ? [
+          h("div", { class: "row-wrap" },
+            h("span", { class: "small muted" }, "Вариант:"),
+            Array.from({ length: variantCount }, (_, i) => UI.chip(`Вариант ${i + 1}`, variant === i + 1, () => { teacherVariant.set(p.id, i + 1); App.render(); }))),
+          variantsOfStudents(p, variantCount),
+        ]
         : h("div", null, h("span", { class: "pill variant-pill" }, `Вариант ${variant}`))),
       (() => {
         const d = Content.deadlineOf(p);
@@ -758,7 +786,7 @@
       h("div", { class: "grow" },
         showStudent && h("div", { class: "card-title" }, st ? (st.group ? `${st.name}, ${st.group}` : st.name) : "Ученик удалён"),
         h("div", { class: showStudent ? "small" : "card-title" }, s.practiceTitle),
-        h("div", { class: "tiny muted" }, Content.formatDate(s.created) + (s.total > 0 ? ` · решено ${s.solved} из ${s.total}` : ""),
+        h("div", { class: "tiny muted" }, Content.formatDate(s.created) + (s.total > 0 ? ` · решено ${s.solved} из ${s.total}` : "") + (s.variant ? ` · вариант ${s.variant}` : ""),
           Content.isLate(s, content.practice(s.practice)) && h("span", { class: "err bold" }, " · с опозданием"))),
       gradeBadge(s.grade));
   }

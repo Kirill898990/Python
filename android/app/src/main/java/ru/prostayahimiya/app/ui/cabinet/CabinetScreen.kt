@@ -181,6 +181,7 @@ fun SubmissionCard(submission: Submission, showStudent: Boolean, late: Boolean =
                     buildString {
                         append(formatServerDate(submission.created))
                         if (submission.total > 0) append(" · решено ${submission.solved} из ${submission.total}")
+                        if (submission.variant > 0) append(" · вариант ${submission.variant}")
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

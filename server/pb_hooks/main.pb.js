@@ -166,3 +166,22 @@ onRecordCreateRequest((e) => {
   }
   e.next()
 }, "users")
+
+// ---------- Варианты ----------
+
+// Вариант ученика в каждой практике, где есть варианты. Раздаём по очереди внутри класса в порядке
+// регистрации: 1-й ученик — вариант 1, 2-й — вариант 2, …, потом снова 1. Новый ученик встаёт в конец,
+// поэтому у остальных вариант не меняется. Список одноклассников ученик не видит — считает сервер.
+routerAdd("GET", "/api/variants", (e) => {
+  const auth = e.requestInfo().auth
+  const mates = e.app.findRecordsByFilter("users", "isTeacher = false && group = {:g}", "created,id", 0, 0, { g: auth.getString("group") })
+  const index = Math.max(0, mates.findIndex((u) => u.id === auth.id))
+  const counts = {}
+  e.app.findRecordsByFilter("tasks", "variant > 0", "", 0, 0).forEach((t) => {
+    const p = t.getString("practice")
+    counts[p] = Math.max(counts[p] || 0, t.getInt("variant"))
+  })
+  const variants = {}
+  Object.keys(counts).forEach((p) => { variants[p] = (index % counts[p]) + 1 })
+  return e.json(200, { variants })
+}, $apis.requireAuth("users"))

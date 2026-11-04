@@ -136,7 +136,12 @@ class Repository(private val context: Context) {
         val practices = api.listAll("practices", Practice.serializer(), sort = "grade,position,title")
         val tasks = api.listAll("tasks", Task.serializer(), sort = "position")
         val notes = runCatching { api.listAll("notes", Note.serializer(), sort = "subject,grade") }.getOrDefault(emptyList())
-        val data = ContentData(practices, tasks, notes)
+        val variants = if (_user.value?.isTeacher == false) {
+            runCatching { api.call("GET", api.url("api/variants"), VariantsResponse.serializer()).variants }.getOrDefault(emptyMap())
+        } else {
+            emptyMap()
+        }
+        val data = ContentData(practices, tasks, notes, variants)
         _content.value = forUser(data, _user.value)
         _contentError.value = null
         cacheFile.writeText(api.json.encodeToString(ContentData.serializer(), data))
@@ -633,7 +638,7 @@ class Repository(private val context: Context) {
         if (user == null || user.isTeacher) return data
         val practices = data.practices.filter { it.isFor(user.group) }
         val ids = practices.map { it.id }.toSet()
-        return ContentData(practices, data.tasks.filter { it.practice in ids }, data.notes)
+        return ContentData(practices, data.tasks.filter { it.practice in ids }, data.notes, data.variants)
     }
 
     private fun loadCache(): ContentData = runCatching {

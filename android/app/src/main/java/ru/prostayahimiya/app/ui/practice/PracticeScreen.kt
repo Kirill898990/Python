@@ -150,7 +150,7 @@ fun PracticeScreen(
     val variant = when {
         variantCount == 0 -> 0
         currentUser == null || currentUser.isTeacher -> teacherVariant.coerceIn(1, variantCount)
-        else -> content.variantFor(practice.id, currentUser.id)
+        else -> content.variantFor(practice.id)
     }
     val tasks = content.tasksForVariant(practice.id, variant)
     val vm: PracticeViewModel = viewModel(
@@ -207,11 +207,14 @@ fun PracticeScreen(
                 if (variantCount > 0) {
                     item {
                         if (currentUser?.isTeacher == true) {
-                            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text("Вариант:", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                (1..variantCount).forEach { v ->
-                                    FilterChip(selected = variant == v, onClick = { teacherVariant = v }, label = { Text("Вариант $v") })
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Text("Вариант:", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    (1..variantCount).forEach { v ->
+                                        FilterChip(selected = variant == v, onClick = { teacherVariant = v }, label = { Text("Вариант $v") })
+                                    }
                                 }
+                                StudentVariants(practice, variantCount, repository)
                             }
                         } else {
                             Surface(shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.secondaryContainer) {
@@ -300,6 +303,59 @@ fun PracticeScreen(
                 TextButton(onClick = { confirmReset = false }) { Text("Отмена") }
             },
         )
+    }
+}
+
+/** Для учителя: кто из учеников какой вариант решает (раскрывается по нажатию). */
+@Composable
+private fun StudentVariants(practice: ru.prostayahimiya.app.data.Practice, count: Int, repository: Repository) {
+    val content by repository.content.collectAsState()
+    var open by rememberSaveable(practice.id) { mutableStateOf(false) }
+    val students by produceState<List<ru.prostayahimiya.app.data.User>?>(null, practice.id) {
+        value = runCatching { repository.students() }.getOrDefault(emptyList())
+    }
+    val scheme = MaterialTheme.colorScheme
+    Card(
+        onClick = { open = !open },
+        colors = CardDefaults.cardColors(containerColor = scheme.surfaceContainerLow),
+        border = BorderStroke(1.dp, scheme.outlineVariant),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+            Text(
+                (if (open) "▾ " else "▸ ") + "Кто какой вариант решает",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+            if (open) {
+                val list = students
+                when {
+                    list == null -> CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.padding(top = 8.dp).size(20.dp))
+                    else -> {
+                        val kids = list.filter { practice.isAssignedTo(it.group) }
+                        val variants = content.variantsOf(practice.id, list)
+                        if (kids.isEmpty()) {
+                            Text("Ученики этой параллели ещё не зарегистрировались.", style = MaterialTheme.typography.bodyMedium, color = scheme.onSurfaceVariant)
+                        }
+                        kids.map { it.group }.distinct().sorted().forEach { group ->
+                            Text(if (group.isBlank()) "Без класса" else "$group класс", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 10.dp))
+                            (1..count).forEach { v ->
+                                val names = kids.filter { it.group == group && variants[it.id] == v }.sortedBy { it.name }.joinToString(", ") { it.name }
+                                Row(Modifier.padding(top = 4.dp)) {
+                                    Text("Вариант $v: ", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = scheme.primary)
+                                    Text(names.ifEmpty { "—" }, style = MaterialTheme.typography.bodyMedium)
+                                }
+                            }
+                        }
+                        Text(
+                            "Варианты раздаются по очереди внутри класса в порядке регистрации: 1, 2, 1, 2… У того, кто уже начал, вариант не меняется.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = scheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 10.dp),
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 

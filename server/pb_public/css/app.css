@@ -752,3 +752,6 @@ p { margin: 0; }
 .variant-pill { background: var(--secondary-container); color: var(--on-secondary-container); border-color: transparent; }
 .variant-inline { margin-left: 8px; }
 .install-more { margin-top: 12px; align-self: flex-start; }
+.variants-card summary { cursor: pointer; }
+.variant-line { display: flex; align-items: baseline; gap: 8px; margin-top: 6px; }
+.variant-line .pill { flex: none; }
