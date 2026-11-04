@@ -37,8 +37,17 @@ data class Practice(
     val grade: Int = 8,
     val position: Int = 0,
     val published: Boolean = false,
+    /** Для каких классов практика («8А», «8Б»). Пусто — для всех. */
+    val classes: List<String> = emptyList(),
+    /** Срок сдачи (время сервера) или пусто. */
+    val deadline: String = "",
 ) {
     val subjectEnum: Subject get() = Subject.fromKey(subject)
+
+    val deadlineInstant: Instant? get() = parseServerInstant(deadline)
+
+    /** Видна ли практика ученику этого класса. */
+    fun isFor(group: String): Boolean = classes.isEmpty() || group in classes
 
     /** «Химия, 8 класс · Практика по химии» — так работа подписывается в кабинете. */
     val fullTitle: String get() = "${subjectEnum.title}, $grade класс · $title"
@@ -166,6 +175,39 @@ data class ContentData(
         practices.filter { it.subjectEnum == subject }.sortedWith(compareBy({ it.grade }, { it.position }, { it.title }))
 
     val checkableTaskIds: List<String> get() = tasks.filter { it.isCheckable }.map { it.id }
+}
+
+/** Код, по которому ученики регистрируются в свой класс. */
+@Serializable
+data class ClassCode(
+    val id: String = "",
+    val group: String = "",
+    val code: String = "",
+    val active: Boolean = false,
+)
+
+@Serializable
+data class RegistrationInfo(val codeRequired: Boolean = false)
+
+/** Что написать про срок сдачи: текст и прошёл ли срок. */
+data class DeadlineStatus(val text: String, val overdue: Boolean)
+
+/** «12 ноября» по времени телефона. */
+fun formatDay(instant: Instant): String =
+    DateTimeFormatter.ofPattern("d MMMM", Locale.forLanguageTag("ru")).withZone(ZoneId.systemDefault()).format(instant)
+
+/** Срок для ученика: «Сдать до 12 ноября» или «Срок прошёл 12 ноября». Если работа сдана — null. */
+fun Practice.deadlineStatus(submitted: Boolean, now: Instant = Instant.now()): DeadlineStatus? {
+    val d = deadlineInstant ?: return null
+    if (submitted) return null
+    return if (d.isBefore(now)) DeadlineStatus("Срок прошёл ${formatDay(d)}", true) else DeadlineStatus("Сдать до ${formatDay(d)}", false)
+}
+
+/** Сдана ли работа позже срока. */
+fun Submission.isLate(practice: Practice?): Boolean {
+    val d = practice?.deadlineInstant ?: return false
+    val sent = parseServerInstant(created) ?: return false
+    return sent.isAfter(d)
 }
 
 /** Сообщение в чате (см. server/pb_migrations/1762100000_chat.js). */

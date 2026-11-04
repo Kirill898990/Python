@@ -27,6 +27,7 @@ import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -57,6 +58,12 @@ fun AuthScreen(repository: Repository) {
     var registerMode by rememberSaveable { mutableStateOf(false) }
     var name by rememberSaveable { mutableStateOf("") }
     var group by rememberSaveable { mutableStateOf("") }
+    var classCode by rememberSaveable { mutableStateOf("") }
+    // Если учитель создал коды классов, вместо «Класс» ученик вводит код, а класс сервер возьмёт из кода.
+    var codeRequired by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(registerMode) {
+        if (registerMode) codeRequired = repository.registrationInfo().codeRequired
+    }
     var username by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
     var password2 by rememberSaveable { mutableStateOf("") }
@@ -71,7 +78,8 @@ fun AuthScreen(repository: Repository) {
         error = null
         fieldErrors = buildMap {
             if (registerMode && name.trim().length < 2) put("name", "Впиши имя и фамилию")
-            if (registerMode && group.isBlank()) put("group", "Впиши класс, например 8Б")
+            if (registerMode && !codeRequired && group.isBlank()) put("group", "Впиши класс, например 8Б")
+            if (registerMode && codeRequired && classCode.isBlank()) put("classCode", "Впиши код класса, который дал учитель")
             if (username.trim().length < 3) put("username", "Логин: не меньше 3 символов")
             if (password.length < 6) put("password", "Пароль: не меньше 6 символов")
             if (registerMode && password2 != password) put("passwordConfirm", "Пароли не совпадают")
@@ -81,7 +89,10 @@ fun AuthScreen(repository: Repository) {
         scope.launch {
             try {
                 if (registerMode) {
-                    repository.register(name, group, username, password, password2)
+                    repository.register(
+                        name, if (codeRequired) "" else group, username, password, password2,
+                        classCode = if (codeRequired) classCode else "",
+                    )
                 } else {
                     repository.login(username, password)
                 }
@@ -142,10 +153,20 @@ fun AuthScreen(repository: Repository) {
                         value = name, onChange = { name = it }, label = "Имя и фамилия", placeholder = "Петя Иванов",
                         error = fieldErrors["name"], capitalization = KeyboardCapitalization.Words,
                     )
-                    Field(
-                        value = group, onChange = { group = it.uppercase() }, label = "Класс", placeholder = "8Б",
-                        error = fieldErrors["group"], capitalization = KeyboardCapitalization.Characters,
-                    )
+                    if (codeRequired) {
+                        Field(
+                            value = classCode, onChange = { classCode = it.uppercase().filter { c -> !c.isWhitespace() } },
+                            label = "Код класса", placeholder = "K7Q2XM",
+                            error = fieldErrors["classCode"],
+                            supporting = "Код даёт учитель. По нему ты попадёшь в свой класс",
+                            capitalization = KeyboardCapitalization.Characters,
+                        )
+                    } else {
+                        Field(
+                            value = group, onChange = { group = it.uppercase() }, label = "Класс", placeholder = "8Б",
+                            error = fieldErrors["group"], capitalization = KeyboardCapitalization.Characters,
+                        )
+                    }
                 }
                 Field(
                     value = username,

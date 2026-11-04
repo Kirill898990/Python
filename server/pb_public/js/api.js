@@ -71,6 +71,8 @@
     if (code === "validation_not_unique") return "Такое значение уже есть";
     if (code === "validation_required") return "Заполни это поле";
     if (code === "validation_values_mismatch") return "Пароли не совпадают";
+    if (code === "class_code_required") return "Впиши код класса, который дал учитель";
+    if (code === "class_code_invalid") return "Неверный код класса. Проверь его у учителя";
     if (code === "validation_invalid_format" && field === "username") {
       return "Логин: только маленькие латинские буквы, цифры и знаки _ . -";
     }
@@ -113,9 +115,20 @@
 
   // ---------- Состояние сайта ----------
   const listeners = new Set();
+  /**
+   * Ученик видит только практики для своего класса (пустой список классов — практика для всех).
+   * Учитель видит всё.
+   */
+  function forUser(data, user) {
+    if (!user || user.isTeacher) return data;
+    const practices = data.practices.filter((p) => !Array.isArray(p.classes) || !p.classes.length || p.classes.includes(user.group));
+    const ids = new Set(practices.map((p) => p.id));
+    return { practices, tasks: data.tasks.filter((t) => ids.has(t.practice)) };
+  }
+
   const state = {
     user: storage.get("user", null),
-    content: storage.get("content", { practices: [], tasks: [] }),
+    content: forUser(storage.get("content", { practices: [], tasks: [] }), storage.get("user", null)),
     contentError: null,
     /** Сданные работы ученика (новые сверху): по ним считается прогресс на главной и в списке практик. */
     mySubmissions: [],
@@ -320,11 +333,21 @@
       await this.refreshMySubmissions();
     },
 
-    async register(name, group, username, password, passwordConfirm) {
+    /** Нужен ли код класса для регистрации (его включает учитель). */
+    async registrationInfo() {
+      try {
+        return await request("GET", "api/registration-info");
+      } catch (_) {
+        return { codeRequired: false };
+      }
+    },
+
+    async register(name, group, username, password, passwordConfirm, classCode) {
       await request("POST", "api/collections/users/records", {
         body: {
           name: String(name).trim(),
-          group: String(group).trim().toUpperCase(),
+          group: String(group || "").trim().toUpperCase(),
+          classCode: String(classCode || "").trim().toUpperCase(),
           username: normalizeUsername(username),
           password,
           passwordConfirm,
@@ -351,7 +374,7 @@
           listAll("practices", { sort: "grade,position,title" }),
           listAll("tasks", { sort: "position" }),
         ]));
-        state.content = { practices, tasks };
+        state.content = forUser({ practices, tasks }, state.user);
         state.contentError = null;
         storage.set("content", state.content);
         emit("content");
@@ -417,7 +440,10 @@
     },
 
     async savePractice(p) {
-      const body = { title: p.title.trim(), subject: p.subject, grade: p.grade, position: p.position || 0, published: !!p.published };
+      const body = {
+        title: p.title.trim(), subject: p.subject, grade: p.grade, position: p.position || 0, published: !!p.published,
+        classes: Array.isArray(p.classes) ? p.classes : [], deadline: p.deadline || "",
+      };
       const saved = await guard(p.id
         ? request("PATCH", `api/collections/practices/records/${safeId(p.id)}`, { body })
         : request("POST", "api/collections/practices/records", { body }));
@@ -560,6 +586,36 @@
       }
     },
 
+    // ----- Коды классов -----
+    classCodes() {
+      return guard(listAll("class_codes", { sort: "group,created" }));
+    },
+
+    /** Новый код для класса: 6 букв и цифр, без похожих друг на друга (0 и O, 1 и I). */
+    createClassCode(group) {
+      const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+      const random = new Uint32Array(6);
+      crypto.getRandomValues(random);
+      const code = Array.from(random, (n) => alphabet[n % alphabet.length]).join("");
+      return guard(request("POST", "api/collections/class_codes/records", {
+        body: { group: String(group).trim().toUpperCase(), code, active: true },
+      }));
+    },
+
+    setClassCodeActive(id, active) {
+      return guard(request("PATCH", `api/collections/class_codes/records/${safeId(id)}`, { body: { active: !!active } }));
+    },
+
+    deleteClassCode(id) {
+      return guard(request("DELETE", `api/collections/class_codes/records/${safeId(id)}`));
+    },
+
+    /** Всё для журнала: ученики и все сданные работы. */
+    async journal() {
+      const [students, submissions] = await Promise.all([this.students(), this.allSubmissions(false)]);
+      return { students, submissions };
+    },
+
     resetPassword(userId, password) {
       return guard(request("PATCH", `api/collections/users/records/${safeId(userId)}`, { body: { password, passwordConfirm: password } }));
     },
@@ -593,6 +649,34 @@
   /** «1 практики», «3 практик»: для фразы «Сдано 2 из N …» */
   function practicesWord(n) {
     return n % 10 === 1 && n % 100 !== 11 ? "практики" : "практик";
+  }
+
+  /** Срок сдачи: Date или null. */
+  function deadlineOf(practice) {
+    if (!practice || !practice.deadline) return null;
+    const d = new Date(String(practice.deadline).trim().replace(" ", "T"));
+    return isNaN(d) ? null : d;
+  }
+
+  /** «12 ноября» */
+  function formatDay(d) {
+    return d.toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
+  }
+
+  /**
+   * Что написать про срок у практики для ученика: {text, overdue} или null.
+   * Если работа уже сдана, срок не показываем.
+   */
+  function deadlineStatus(practice, submitted) {
+    const d = deadlineOf(practice);
+    if (!d || submitted) return null;
+    return d < new Date() ? { text: `Срок прошёл ${formatDay(d)}`, overdue: true } : { text: `Сдать до ${formatDay(d)}`, overdue: false };
+  }
+
+  /** Сдана ли работа позже срока. */
+  function isLate(submission, practice) {
+    const d = deadlineOf(practice);
+    return !!d && new Date(String(submission.created).trim().replace(" ", "T")) > d;
   }
 
   /** «3 задания», «5 заданий», «1 задание» */
@@ -639,6 +723,10 @@
     formatDate,
     tasksWord,
     practicesWord,
+    deadlineOf,
+    deadlineStatus,
+    formatDay,
+    isLate,
     THEORY,
     FEEDBACK_URL: "https://forms.yandex.ru/u/6ad4f70a4a052d113bebc2a1",
     AUTHOR: "Простая химия с Ириной",

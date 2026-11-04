@@ -694,3 +694,23 @@ p { margin: 0; }
 .image-edit { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .image-edit img { max-height: 96px; border-radius: 8px; border: 1px solid var(--outline-variant); }
 .task-row-image { max-height: 56px; border-radius: 6px; margin-top: 4px; }
+
+/* ---------- Сроки, журнал, коды классов ---------- */
+.deadline-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--outline-variant); color: inherit; text-decoration: none; }
+.deadline-row:first-of-type { margin-top: 8px; }
+.journal-wrap { overflow-x: auto; border: 1px solid var(--outline-variant); border-radius: 16px; background: var(--card); }
+.journal { border-collapse: collapse; width: 100%; font-size: 14px; }
+.journal th, .journal td { padding: 8px 10px; border-bottom: 1px solid var(--outline-variant); text-align: center; white-space: nowrap; }
+.journal th { font-weight: 600; color: var(--muted); font-size: 12px; vertical-align: bottom; }
+.journal th.practice-col { white-space: normal; min-width: 90px; max-width: 140px; }
+.journal td.name, .journal th.name { text-align: left; position: sticky; left: 0; background: var(--card); }
+.journal tr:last-child td { border-bottom: none; }
+.journal .cell-link { color: inherit; text-decoration: none; display: inline-block; min-width: 28px; }
+.journal .avg { font-weight: 700; }
+.journal .late { color: var(--error); }
+.stat-row { display: flex; justify-content: space-between; gap: 12px; font-size: 14px; padding: 4px 0; }
+.code-card { display: flex; align-items: center; gap: 12px; }
+.code-value { font-family: ui-monospace, "Roboto Mono", monospace; font-size: 22px; font-weight: 700; letter-spacing: 2px; }
+.code-card.inactive .code-value { text-decoration: line-through; color: var(--muted); }
+.date-input { padding: 10px 12px; border: 1px solid var(--outline); border-radius: 8px; background: var(--card); font: inherit; color: inherit; }
+.journal .late-mark { font-size: 12px; margin-left: 2px; vertical-align: top; }

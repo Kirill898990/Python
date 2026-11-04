@@ -23,8 +23,16 @@
   function auth() {
     let register = false;
     let busy = false;
-    const values = { name: "", group: "", username: "", password: "", password2: "" };
+    // Если учитель создал коды классов, вместо «Класс» ученик вводит код, а класс сервер возьмёт из кода.
+    let codeRequired = false;
+    const values = { name: "", group: "", classCode: "", username: "", password: "", password2: "" };
     const formBox = h("div", { class: "auth-form" });
+    Api.registrationInfo().then((info) => {
+      if (info.codeRequired !== codeRequired) {
+        codeRequired = !!info.codeRequired;
+        if (register) renderForm();
+      }
+    });
 
     function renderForm() {
       const fields = {};
@@ -41,7 +49,8 @@
         error.textContent = "";
         const errors = {};
         if (register && values.name.trim().length < 2) errors.name = "Впиши имя и фамилию";
-        if (register && !values.group.trim()) errors.group = "Впиши класс, например 8Б";
+        if (register && !codeRequired && !values.group.trim()) errors.group = "Впиши класс, например 8Б";
+        if (register && codeRequired && !values.classCode.trim()) errors.classCode = "Впиши код класса, который дал учитель";
         if (values.username.trim().length < 3) errors.username = "Логин: не меньше 3 символов";
         if (values.password.length < 6) errors.password = "Пароль: не меньше 6 символов";
         if (register && values.password2 !== values.password) errors.passwordConfirm = "Пароли не совпадают";
@@ -49,7 +58,7 @@
         busy = true;
         replace(submitBtn, h("span", { class: "spinner spinner-sm" }));
         try {
-          if (register) await Api.register(values.name, values.group, values.username, values.password, values.password2);
+          if (register) await Api.register(values.name, codeRequired ? "" : values.group, values.username, values.password, values.password2, codeRequired ? values.classCode : "");
           else await Api.login(values.username, values.password);
         } catch (e) {
           busy = false;
@@ -71,7 +80,11 @@
       replace(formBox,
         segmented([{ value: false, label: "Вход" }, { value: true, label: "Регистрация" }], register, (v) => { register = v; renderForm(); }),
         register && make("name", { label: "Имя и фамилия", placeholder: "Петя Иванов", autocomplete: "name", autocapitalize: "words" }),
-        register && make("group", { label: "Класс", placeholder: "8Б", autocapitalize: "characters" }),
+        register && !codeRequired && make("group", { label: "Класс", placeholder: "8Б", autocapitalize: "characters" }),
+        register && codeRequired && make("classCode", {
+          label: "Код класса", placeholder: "K7Q2XM", autocapitalize: "characters", autocomplete: "off",
+          supporting: "Код даёт учитель. По нему ты попадёшь в свой класс",
+        }),
         make("username", {
           label: "Логин", placeholder: "petya", autocomplete: "username", autocapitalize: "none",
           supporting: register ? "Латинские буквы и цифры, его ты будешь вводить при входе" : null,
@@ -91,10 +104,11 @@
         const fixed = username.value.trim().toLowerCase();
         if (fixed !== username.value) { username.value = fixed; values.username = fixed; }
       });
-      if (fields.group) {
-        const g = fields.group.input;
-        g.addEventListener("input", () => { g.value = g.value.toUpperCase(); values.group = g.value; });
-      }
+      ["group", "classCode"].forEach((key) => {
+        if (!fields[key]) return;
+        const g = fields[key].input;
+        g.addEventListener("input", () => { g.value = g.value.toUpperCase(); values[key] = g.value; });
+      });
     }
 
     renderForm();
@@ -182,6 +196,7 @@
         h("div", { class: "card-title" }, submitted === totalPractices ? "Все практики сданы! 🎉" : "Твой прогресс"),
         h("p", { class: "muted small mt" }, `Сдано ${submitted} из ${totalPractices} ${Content.practicesWord(totalPractices)}`),
         h("div", { class: "mt" }, progressBar(submitted / totalPractices))),
+      !(user && user.isTeacher) && deadlinesCard(),
       sectionLabel("Материалы к занятиям"),
       menuCard("#/subject/biology", "🧬", "c-biology", "Практики по биологии", `${Content.gradeRange("biology")} класс`),
       menuCard("#/subject/chemistry", "⚗️", "c-chemistry", "Практики по химии", `${Content.gradeRange("chemistry")} класс`),
@@ -194,6 +209,23 @@
           icon("star", 18), h("span", null, "Оставить отзыв"))),
       installSection(),
       h("p", { class: "center" }, h("a", { class: "policy-link", href: "privacy.html" }, "Политика конфиденциальности")));
+  }
+
+  /** «Сроки сдачи»: несданные практики со сроком, ближайшие сверху. */
+  function deadlinesCard() {
+    const items = Api.state.content.practices
+      .filter((p) => Content.deadlineOf(p) && !Api.lastSubmission(p.id))
+      .sort((a, b) => Content.deadlineOf(a) - Content.deadlineOf(b))
+      .slice(0, 4);
+    if (!items.length) return null;
+    return h("div", { class: "card" },
+      h("div", { class: "card-title" }, "⏰ Сроки сдачи"),
+      items.map((p) => {
+        const st = Content.deadlineStatus(p, false);
+        return h("a", { class: "deadline-row", href: `#/practice/${p.id}` },
+          h("span", { class: "grow" }, `${Content.subjectOf(p.subject).title}, ${p.grade} класс · ${p.title}`),
+          h("span", { class: "small bold " + (st.overdue ? "err" : "muted") }, st.text));
+      }));
   }
 
   // ======================= Предмет: классы и практики =======================
@@ -218,12 +250,16 @@
           const status = !showStatus || !last
             ? `${total} ${Content.tasksWord(total)}` + (showStatus ? " · не сдано" : "")
             : last.grade > 0 ? `Сдано · оценка ${last.grade}` : "Сдано · на проверке";
+          const due = showStatus ? Content.deadlineStatus(p, !!last) : null;
+          const forClasses = !showStatus && Array.isArray(p.classes) && p.classes.length ? "Для " + p.classes.join(", ") : null;
+          const teacherDue = !showStatus && Content.deadlineOf(p) ? "до " + Content.formatDay(Content.deadlineOf(p)) : null;
           return [
             h("div", { class: "divider" }),
             h("a", { class: "practice-row card-link", href: `#/practice/${p.id}` },
               h("div", { class: "grow" },
                 h("div", { class: "row" }, h("span", { class: "bold" }, p.title), !p.published && h("span", { class: "pill pill-draft" }, "Черновик")),
-                h("div", { class: "card-sub" }, status)),
+                h("div", { class: "card-sub" }, [status, forClasses, teacherDue].filter(Boolean).join(" · ")),
+                due && h("div", { class: "small bold " + (due.overdue ? "err" : "ok") }, "⏰ " + due.text)),
               last && last.grade > 0 && gradeBadge(last.grade),
               icon("chevron")),
           ];
@@ -641,6 +677,13 @@
       topBar(`${Content.subjectOf(p.subject).title} · ${p.grade} класс`, () => App.back(`subject/${p.subject}`),
         menuButton([{ label: "Начать заново", onclick: reset }])),
       h("h2", { class: "home-title" }, p.title),
+      (() => {
+        const d = Content.deadlineOf(p);
+        if (!d) return null;
+        const overdue = d < new Date();
+        return h("p", { class: "small bold " + (overdue ? "err" : "ok") },
+          "⏰ " + (overdue ? `Срок сдачи прошёл ${Content.formatDay(d)} — сдать ещё можно, учитель увидит опоздание` : `Сдать до ${Content.formatDay(d)}`));
+      })(),
       progressBox,
       sections.length === 0 && emptyBox("📝", "В этой практике пока нет заданий"),
       sections.map((s, i) => [
@@ -662,7 +705,8 @@
       h("div", { class: "grow" },
         showStudent && h("div", { class: "card-title" }, st ? (st.group ? `${st.name}, ${st.group}` : st.name) : "Ученик удалён"),
         h("div", { class: showStudent ? "small" : "card-title" }, s.practiceTitle),
-        h("div", { class: "tiny muted" }, Content.formatDate(s.created) + (s.total > 0 ? ` · решено ${s.solved} из ${s.total}` : ""))),
+        h("div", { class: "tiny muted" }, Content.formatDate(s.created) + (s.total > 0 ? ` · решено ${s.solved} из ${s.total}` : ""),
+          Content.isLate(s, content.practice(s.practice)) && h("span", { class: "err bold" }, " · с опозданием"))),
       gradeBadge(s.grade));
   }
 
@@ -718,7 +762,8 @@
         h("div", null,
           isTeacher && st && h("h2", { class: "home-title" }, st.group ? `${st.name}, ${st.group}` : st.name),
           h("div", { class: "card-title" }, s.practiceTitle),
-          h("p", { class: "small muted" }, "Сдано " + Content.formatDate(s.created) + (s.total > 0 ? ` · автопроверка: верно ${s.solved} из ${s.total}` : ""))),
+          h("p", { class: "small muted" }, "Сдано " + Content.formatDate(s.created) + (s.total > 0 ? ` · автопроверка: верно ${s.solved} из ${s.total}` : ""),
+            Content.isLate(s, content.practice(s.practice)) && h("span", { class: "err bold" }, " · с опозданием"))),
         isTeacher ? Teacher.gradeEditor(s) : gradeView(s),
         sectionLabel("Ответы"),
         answers,

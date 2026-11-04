@@ -1,5 +1,9 @@
 package ru.prostayahimiya.app.ui.home
 
+import ru.prostayahimiya.app.data.deadlineStatus
+import ru.prostayahimiya.app.data.Practice
+import androidx.compose.foundation.clickable
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
@@ -75,6 +79,7 @@ fun HomeScreen(
     onOpenCabinet: () -> Unit,
     onOpenAdmin: () -> Unit,
     onOpenChat: () -> Unit,
+    onOpenPractice: (String) -> Unit,
 ) {
     val user by repository.user.collectAsState()
     val content by repository.content.collectAsState()
@@ -159,6 +164,14 @@ fun HomeScreen(
                 }
                 if (totalPractices > 0 && user?.isTeacher != true) {
                     item { ProgressCard(submittedPractices, totalPractices) }
+                }
+                // Несданные практики со сроком, ближайшие сверху.
+                val upcoming = if (user?.isTeacher == true) emptyList() else content.practices
+                    .filter { p -> p.deadlineInstant != null && submissions.none { it.practice == p.id } }
+                    .sortedBy { it.deadlineInstant }
+                    .take(4)
+                if (upcoming.isNotEmpty()) {
+                    item { DeadlinesCard(upcoming, onOpenPractice) }
                 }
                 item { SectionLabel("Материалы к занятиям") }
                 item {
@@ -276,6 +289,36 @@ private fun Header(grades: String, user: User?, onOpenCabinet: () -> Unit) {
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSecondaryContainer,
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DeadlinesCard(practices: List<Practice>, onOpenPractice: (String) -> Unit) {
+    Card(colors = cardColors(), border = cardBorder()) {
+        Column(Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
+            Text(
+                "⏰ Сроки сдачи",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+            practices.forEach { practice ->
+                val due = practice.deadlineStatus(submitted = false) ?: return@forEach
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().clickable { onOpenPractice(practice.id) }.padding(horizontal = 16.dp, vertical = 10.dp),
+                ) {
+                    Text(practice.fullTitle, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                    Text(
+                        due.text,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = if (due.overdue) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 12.dp),
+                    )
+                }
             }
         }
     }

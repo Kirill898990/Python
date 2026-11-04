@@ -62,6 +62,7 @@ fun AppNavigation(repository: Repository) {
                 onOpenCabinet = { nav.navigate("cabinet") },
                 onOpenAdmin = { nav.navigate("admin") },
                 onOpenChat = { nav.navigate("chats") },
+                onOpenPractice = { id -> nav.navigate("practice/$id") },
             )
         }
         composable("chats") {
