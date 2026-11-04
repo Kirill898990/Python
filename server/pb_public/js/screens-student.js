@@ -201,6 +201,7 @@
       menuCard("#/subject/biology", "🧬", "c-biology", "Практики по биологии", `${Content.gradeRange("biology")} класс`),
       menuCard("#/subject/chemistry", "⚗️", "c-chemistry", "Практики по химии", `${Content.gradeRange("chemistry")} класс`),
       menuCard("#/theory", "📚", "c-secondary", "Теоретическая часть", "Учебники ЯКласса по классам"),
+      menuCard("#/reference", "🧪", "c-chemistry", "Справочник", "Таблица Менделеева и таблица растворимости"),
       h("img", { class: "banner banner-people", src: "images/scientists.jpg", alt: "" }),
       h("div", { class: "footer" },
         h("div", { class: "card-title" }, Content.AUTHOR),
@@ -245,7 +246,7 @@
             h("div", { class: "card-title" }, `${grade} класс`),
             list.length === 0 && h("div", { class: "card-sub" }, "Задания скоро появятся"))),
         list.map((p) => {
-          const total = content.tasksOf(p.id).length;
+          const total = content.myTasks(p.id).length;
           const last = showStatus ? Api.lastSubmission(p.id) : null;
           const status = !showStatus || !last
             ? `${total} ${Content.tasksWord(total)}` + (showStatus ? " · не сдано" : "")
@@ -264,6 +265,7 @@
               icon("chevron")),
           ];
         }),
+        noteBlock(key, grade),
         theory && h("a", { class: "btn btn-text mt", href: theory, target: "_blank", rel: "noopener noreferrer" },
           h("span", null, "Теория в ЯКлассе"), icon("open", 16)));
     };
@@ -271,6 +273,35 @@
     return h("div", { class: "screen" },
       topBar(key === "biology" ? "Практики по биологии" : "Практики по химии", () => App.back("")),
       Content.grades(key).map(gradeCard));
+  }
+
+  /** Заметка учителя к теории для класса. Учитель может её написать, изменить или убрать. */
+  function noteBlock(subjectKey, grade) {
+    const isTeacher = Api.state.user && Api.state.user.isTeacher;
+    const note = content.noteFor(subjectKey, grade);
+    if (!note && !isTeacher) return null;
+    const edit = () => UI.dialog((close) => {
+      let text = note ? note.text : "";
+      const f = field({ label: "Заметка для учеников", multiline: true, rows: 6, value: text, oninput: (v) => { text = v; },
+        supporting: "Например: что повторить к контрольной, какие параграфы прочитать. Пустая заметка удалится." });
+      const save = button("Сохранить", async () => {
+        save.disabled = true;
+        try {
+          await Api.saveNote(subjectKey, grade, text);
+          close();
+          UI.toast(text.trim() ? "Заметка сохранена" : "Заметка удалена");
+          App.render();
+        } catch (e) {
+          f.setError(e.message);
+          save.disabled = false;
+        }
+      }, { kind: "text" });
+      return { title: `Заметка к теории · ${grade} класс`, body: [f], actions: [button("Отмена", close, { kind: "text" }), save] };
+    }, { wide: true });
+    return [
+      note && h("div", { class: "note-card" }, h("div", { class: "small bold" }, "📝 Заметка учителя"), h("div", { class: "mt" }, note.text)),
+      isTeacher && button(note ? "Изменить заметку" : "Добавить заметку к теории", edit, { kind: "text" }),
+    ];
   }
 
   // ======================= Теория =======================
@@ -361,6 +392,9 @@
     return img;
   }
 
+  /** Какой вариант учитель смотрит в каждой практике. */
+  const teacherVariant = new Map();
+
   function practice(params) {
     const p = content.practice(params.id);
     if (!p) {
@@ -368,7 +402,12 @@
     }
     const user = Api.state.user;
     const store = Api.progress;
-    const all = content.tasksOf(p.id).filter((t) => t.type !== "equation" || Chem.parseEquation(t.text));
+    // Варианты: ученику — его вариант, учителю — тот, который он выбрал для просмотра.
+    const variantCount = content.variantCount(p.id);
+    const isTeacherView = !!(user && user.isTeacher);
+    const variant = !variantCount ? 0
+      : isTeacherView ? Math.min(teacherVariant.get(p.id) || 1, variantCount) : content.variantFor(p.id, user.id);
+    const all = content.tasksForVariant(p.id, variant).filter((t) => t.type !== "equation" || Chem.parseEquation(t.text));
     const byType = (type) => all.filter((t) => t.type === type);
     const sections = SECTIONS.filter((s) => byType(s.type).length);
     const checkable = all.filter(Api.isCheckable);
@@ -649,7 +688,7 @@
         replace(sendBtn, h("span", { class: "spinner spinner-sm" }), h("span", null, "Отправляем…"));
         try {
           // Сколько верно, сервер посчитает сам.
-          last = await Api.submit(p, items, 0, checkable.length);
+          last = await Api.submit(p, items, 0, checkable.length, variant);
           replace(resultBox,
             feedback("Готово! Работа отправлена учителю.", "success"),
             h("a", { class: "btn btn-text mt", href: "#/cabinet" }, "Открыть личный кабинет"));
@@ -675,8 +714,14 @@
 
     const screen = h("div", { class: "screen" },
       topBar(`${Content.subjectOf(p.subject).title} · ${p.grade} класс`, () => App.back(`subject/${p.subject}`),
+        h("button", { class: "icon-btn", type: "button", "aria-label": "Справочник", title: "Таблица Менделеева и растворимости", onclick: () => App.go("reference") }, icon("book")),
         menuButton([{ label: "Начать заново", onclick: reset }])),
       h("h2", { class: "home-title" }, p.title),
+      variantCount > 0 && (isTeacherView
+        ? h("div", { class: "row-wrap" },
+          h("span", { class: "small muted" }, "Вариант:"),
+          Array.from({ length: variantCount }, (_, i) => UI.chip(`Вариант ${i + 1}`, variant === i + 1, () => { teacherVariant.set(p.id, i + 1); App.render(); })))
+        : h("div", null, h("span", { class: "pill variant-pill" }, `Вариант ${variant}`))),
       (() => {
         const d = Content.deadlineOf(p);
         if (!d) return null;
@@ -761,7 +806,7 @@
       return [
         h("div", null,
           isTeacher && st && h("h2", { class: "home-title" }, st.group ? `${st.name}, ${st.group}` : st.name),
-          h("div", { class: "card-title" }, s.practiceTitle),
+          h("div", { class: "card-title" }, s.practiceTitle + (s.variant ? ` · вариант ${s.variant}` : "")),
           h("p", { class: "small muted" }, "Сдано " + Content.formatDate(s.created) + (s.total > 0 ? ` · автопроверка: верно ${s.solved} из ${s.total}` : ""),
             Content.isLate(s, content.practice(s.practice)) && h("span", { class: "err bold" }, " · с опозданием"))),
         isTeacher ? Teacher.gradeEditor(s) : gradeView(s),

@@ -22,6 +22,8 @@ ADMIN_PASSWORD="${3:-}"
 PB_VERSION="${PB_VERSION:-0.40.6}"
 REPO="${REPO:-Kirill898990/Python}"
 BRANCH="${BRANCH:-main}"
+# Точная версия кода (номер коммита). Её передаёт автообновление из GitHub, чтобы поставить ровно то, что слили.
+REF="${REF:-}"
 DIR="${DIR:-/opt/pocketbase}"
 
 say() { printf '\n\033[1;32m==> %s\033[0m\n' "$1"; }
@@ -57,8 +59,13 @@ curl -fsSL -o "$TMP/pb.zip" \
   "https://github.com/pocketbase/pocketbase/releases/download/v${PB_VERSION}/pocketbase_${PB_VERSION}_linux_${ARCH}.zip"
 unzip -q -o "$TMP/pb.zip" pocketbase -d "$TMP/pb"
 
-say "Скачиваю сайт и базу с GitHub (ветка $BRANCH)"
-curl -fsSL -o "$TMP/src.zip" "https://github.com/${REPO}/archive/refs/heads/${BRANCH}.zip"
+if [ -n "$REF" ]; then
+  say "Скачиваю сайт и базу с GitHub (версия ${REF:0:7})"
+  curl -fsSL -o "$TMP/src.zip" "https://github.com/${REPO}/archive/${REF}.zip"
+else
+  say "Скачиваю сайт и базу с GitHub (ветка $BRANCH)"
+  curl -fsSL -o "$TMP/src.zip" "https://github.com/${REPO}/archive/refs/heads/${BRANCH}.zip"
+fi
 unzip -q "$TMP/src.zip" -d "$TMP/src"
 SRC="$(find "$TMP/src" -mindepth 2 -maxdepth 2 -type d -name server | head -n 1)"
 [ -n "$SRC" ] && [ -d "$SRC/pb_migrations" ] && [ -d "$SRC/pb_public" ] && [ -d "$SRC/pb_hooks" ] || fail "в архиве не найдена папка server"

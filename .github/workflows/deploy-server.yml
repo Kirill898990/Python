@@ -1,0 +1,45 @@
+# Автообновление сервера: после каждого слияния в main, если менялась папка server,
+# GitHub заходит на сервер и запускает server/install.sh (как вы делали это вручную).
+#
+# Чтобы заработало, один раз добавьте в репозитории (Settings → Secrets and variables → Actions):
+#   секрет DEPLOY_HOST    — адрес сервера, например 2.58.127.6;
+#   секрет DEPLOY_SSH_KEY — закрытый ключ для входа на сервер (как его сделать — в server/README.md).
+# Пока секретов нет, этот шаг просто пропускается и ничего не ломает.
+# Запустить обновление вручную: вкладка Actions → «Обновить сервер» → Run workflow.
+
+name: Обновить сервер
+
+on:
+  push:
+    branches: [main]
+    paths: ["server/**"]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-server
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Обновить сервер
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          DOMAIN: ${{ vars.DEPLOY_DOMAIN || 'урокискириллом.рф' }}
+          SHA: ${{ github.sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ -z "$SSH_KEY" ] || [ -z "$HOST" ]; then
+            echo "Автообновление не настроено: добавьте секреты DEPLOY_HOST и DEPLOY_SSH_KEY (см. server/README.md)."
+            exit 0
+          fi
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          # Скрипт и код берутся ровно той версии, которую только что слили (номер коммита $SHA).
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=30 "root@$HOST" \
+            "curl -fsSL https://raw.githubusercontent.com/$REPO/$SHA/server/install.sh | REF=$SHA bash -s -- $DOMAIN"
+          echo "Сервер обновлён до версии ${SHA:0:7}"

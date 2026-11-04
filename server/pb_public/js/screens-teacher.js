@@ -441,7 +441,7 @@
       const info = TYPES[t.type] || TYPES.question;
       return h("div", { class: "card task-row" },
         h("div", { class: "grow", role: "button", tabindex: "0", onclick: () => editTask(t), onkeydown: (e) => { if (e.key === "Enter") editTask(t); } },
-          h("div", { class: "task-label" }, `${index + 1}. ${info.emoji} ${info.title}`),
+          h("div", { class: "task-label" }, `${index + 1}. ${info.emoji} ${info.title}`, t.variant ? h("span", { class: "pill variant-pill variant-inline" }, `Вариант ${t.variant}`) : null),
           h("div", { class: "task-row-text" }, shown),
           t.type === "choice" && h("div", { class: "tiny muted" }, options.map((o, k) => `${k + 1}) ${Chem.prettyIfFormula(o)}`).join("   ")),
           answer && answer() && h("div", { class: "small ok" }, "Ответ: " + answer()),
@@ -668,6 +668,12 @@
           }
         }
 
+        // ----- Вариант -----
+        const variantBox = h("div", { class: "row-wrap" });
+        const renderVariant = () => replace(variantBox,
+          [0, 1, 2, 3, 4].map((v) => chip(v === 0 ? "Для всех" : `Вариант ${v}`, (t.variant || 0) === v, () => { t.variant = v; renderVariant(); })));
+        renderVariant();
+
         validate();
         return {
           title: (task.id ? "Задание: " : "Новое задание: ") + info.title.toLowerCase(),
@@ -677,6 +683,9 @@
             t.type === "choice" && optionsBox,
             h("div", { class: "small bold" }, "Картинка (необязательно)"),
             imageBox,
+            h("div", { class: "small bold" }, "Кому это задание"),
+            variantBox,
+            h("div", { class: "tiny muted" }, "Можно сделать до 4 вариантов: каждый ученик получит свой вариант сам, а задания «для всех» решают все."),
             error,
           ],
           actions: [button("Отмена", close, { kind: "text" }), saveBtn],
