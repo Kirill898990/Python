@@ -92,6 +92,8 @@ data class Practice(
     val exam: Boolean = false,
     /** Минут на контрольную (0 — без ограничения). */
     val timeLimit: Int = 0,
+    /** Практика для одного ученика купленного курса (id записи курса) или пусто. */
+    val enrollment: String = "",
 ) {
     val subjectEnum: Subject get() = Subject.fromKey(subject)
 
@@ -117,6 +119,7 @@ data class Practice(
      * биология 5 класса засчитывается 5А и 5Б, но не девятиклассникам. Так же считает сайт.
      */
     fun isAssignedTo(group: String): Boolean {
+        if (enrollment.isNotBlank()) return false // практика ученика курса — в «Подготовке», а не в классе
         if (classes.isNotEmpty()) return group in classes
         val g = gradeOf(group)
         return g == 0 || grade == g
@@ -293,8 +296,14 @@ data class ContentData(
     fun tasksOf(practiceId: String): List<Task> =
         tasks.filter { it.practice == practiceId }.sortedWith(compareBy({ it.position }, { it.id }))
 
+    /** Практики предмета для классов (практики учеников курсов — отдельно, см. [coursePractices]). */
     fun practicesOf(subject: Subject): List<Practice> =
-        practices.filter { it.subjectEnum == subject }.sortedWith(compareBy({ it.grade }, { it.position }, { it.title }))
+        practices.filter { it.subjectEnum == subject && it.enrollment.isBlank() }
+            .sortedWith(compareBy({ it.grade }, { it.position }, { it.title }))
+
+    /** Практики одного ученика курса. */
+    fun coursePractices(enrollmentId: String): List<Practice> =
+        practices.filter { it.enrollment == enrollmentId }.sortedWith(compareBy({ it.position }, { it.title }))
 
     val checkableTaskIds: List<String> get() = tasks.filter { it.isCheckable }.map { it.id }
 }
@@ -368,23 +377,58 @@ data class Message(
     val student: String = "",
     val text: String = "",
     val created: String = "",
+    /** Чат купленного курса: id записи курса. */
+    val enrollment: String = "",
 )
 
-/** Комната чата: [key] — класс («8Б») для чата класса или id ученика для личной переписки. */
+/**
+ * Комната чата: [key] — класс («8Б») для чата класса, id ученика для личной переписки
+ * или id записи курса для чата курса.
+ */
 data class ChatRoom(val kind: String, val key: String) {
     val isClass: Boolean get() = kind == CLASS
+    val isCourse: Boolean get() = kind == COURSE
     val id: String get() = "$kind:$key"
 
-    fun contains(message: Message): Boolean =
-        message.kind == kind && (if (isClass) message.group == key else message.student == key)
+    fun contains(message: Message): Boolean = message.kind == kind && when (kind) {
+        CLASS -> message.group == key
+        COURSE -> message.enrollment == key
+        else -> message.student == key
+    }
 
     companion object {
         const val CLASS = "class"
         const val PRIVATE = "private"
+        const val COURSE = "course"
         fun ofClass(group: String) = ChatRoom(CLASS, group)
         fun private(studentId: String) = ChatRoom(PRIVATE, studentId)
+        fun course(enrollmentId: String) = ChatRoom(COURSE, enrollmentId)
+        fun of(kind: String, key: String) = ChatRoom(if (kind == PRIVATE || kind == COURSE) kind else CLASS, key)
     }
 }
+
+/** Купленный курс (магазин beemei на сайте): ученик, учитель, предмет и экзамен. */
+@Serializable
+data class Enrollment(
+    val id: String = "",
+    val student: String = "",
+    val teacher: String = "",
+    val title: String = "",
+    val subject: String = "",
+    val exam: String = "",
+    val active: Boolean = false,
+    val created: String = "",
+    val expand: EnrollmentExpand? = null,
+) {
+    val subjectEnum: Subject get() = Subject.fromKey(subject)
+    /** «Подготовка к ЕГЭ · Биология» */
+    val heading: String get() = "Подготовка к $exam · ${subjectEnum.title}"
+    /** ОГЭ сдают в 9 классе, ЕГЭ — в 11. */
+    val grade: Int get() = if (exam == "ОГЭ") 9 else 11
+}
+
+@Serializable
+data class EnrollmentExpand(val student: User? = null, val teacher: User? = null)
 
 /** Строка в списке чатов: комната, её название и последнее сообщение. */
 data class ChatThread(

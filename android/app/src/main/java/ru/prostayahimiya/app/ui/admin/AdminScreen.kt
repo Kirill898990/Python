@@ -27,7 +27,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.PrimaryScrollableTabRow
+import ru.prostayahimiya.app.ui.course.TeacherCoursesTab
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -77,6 +78,7 @@ fun AdminScreen(
     onOpenSubmission: (String) -> Unit,
     onEditPractice: (String) -> Unit,
     onWriteToStudent: (User) -> Unit,
+    onOpenCourse: (String) -> Unit = {},
 ) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     val snackbar = remember { SnackbarHostState() }
@@ -85,8 +87,9 @@ fun AdminScreen(
         topBar = {
             Column {
                 BackTopBar("Панель учителя", onBack)
-                PrimaryTabRow(selectedTabIndex = tab, containerColor = MaterialTheme.colorScheme.background) {
-                    listOf("Работы", "Журнал", "Задания", "Ученики").forEachIndexed { index, title ->
+                // Пять вкладок на узком экране не помещаются — прокручиваются вбок.
+                PrimaryScrollableTabRow(selectedTabIndex = tab, containerColor = MaterialTheme.colorScheme.background, edgePadding = 0.dp) {
+                    listOf("Работы", "Журнал", "Задания", "Ученики", "Курсы").forEachIndexed { index, title ->
                         Tab(selected = tab == index, onClick = { tab = index }, text = { Text(title) })
                     }
                 }
@@ -106,7 +109,8 @@ fun AdminScreen(
             0 -> WorksTab(repository, onOpenSubmission, modifier, bottom)
             1 -> JournalTab(repository, snackbar, onOpenSubmission, modifier, bottom)
             2 -> PracticesTab(repository, onEditPractice, modifier, bottom)
-            else -> StudentsTab(repository, snackbar, onWriteToStudent, modifier, bottom)
+            3 -> StudentsTab(repository, snackbar, onWriteToStudent, modifier, bottom)
+            else -> TeacherCoursesTab(repository, onOpenCourse, modifier, bottom)
         }
     }
 }

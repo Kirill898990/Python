@@ -1,5 +1,8 @@
 package ru.prostayahimiya.app.ui.home
 
+import ru.prostayahimiya.app.ui.course.HomeCourses
+import ru.prostayahimiya.app.data.Enrollment
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.unit.sp
 import androidx.compose.material3.AlertDialog
 import ru.prostayahimiya.app.data.gradeOf
@@ -86,8 +89,13 @@ fun HomeScreen(
     onOpenPractice: (String) -> Unit,
     onOpenReference: () -> Unit,
     onOpenTrainer: () -> Unit = {},
+    onOpenCourse: (String) -> Unit = {},
 ) {
     val user by repository.user.collectAsState()
+    // Купленные курсы (магазин beemei на сайте): только после покупки на главной появляется «Подготовка».
+    val courses by produceState(emptyList<Enrollment>(), user?.id) {
+        value = if (user?.isTeacher == false) runCatching { repository.enrollments().filter { it.active } }.getOrDefault(emptyList()) else emptyList()
+    }
     val content by repository.content.collectAsState()
     val contentError by repository.contentError.collectAsState()
     val submissions by repository.mySubmissionsState.collectAsState()
@@ -228,6 +236,9 @@ fun HomeScreen(
                             else -> null
                         },
                     )
+                }
+                if (courses.isNotEmpty()) {
+                    item { HomeCourses(courses, onOpenCourse) }
                 }
                 val graduate = user?.graduated == true
                 if (graduate) {
