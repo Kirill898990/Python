@@ -36,6 +36,21 @@ data class User(
 @Serializable
 data class GeneratedTasks(val tasks: List<Task> = emptyList(), val dropped: Int = 0, val left: Int? = null)
 
+/**
+ * Класс в одном виде: без пробелов, большими буквами, латинские буквы-двойники заменены русскими.
+ * «8 б» → «8Б», «8A» (латиница) → «8А». Так же делают сайт и сервер.
+ */
+fun normalizeGroup(value: String): String {
+    val twins = mapOf('A' to 'А', 'B' to 'В', 'C' to 'С', 'E' to 'Е', 'H' to 'Н', 'K' to 'К', 'M' to 'М', 'O' to 'О', 'P' to 'Р', 'T' to 'Т', 'X' to 'Х', 'Y' to 'У')
+    return value.filterNot { it.isWhitespace() }.uppercase().map { twins[it] ?: it }.joinToString("")
+}
+
+/** Похоже ли на класс: цифра (1–11) и буква без пробела — «8Б», «10А». */
+fun isGroup(value: String): Boolean {
+    val m = Regex("^(\\d{1,2})[А-ЯЁ]{0,2}$").find(value) ?: return false
+    return m.groupValues[1].toInt() in 1..11
+}
+
 /** Итог «Нового учебного года». */
 @Serializable
 data class NewYearResult(val moved: Int = 0, val graduated: Int = 0, val deadlinesCleared: Int = 0, val messagesDeleted: Int = 0)
