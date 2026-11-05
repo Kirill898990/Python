@@ -34,6 +34,9 @@
     if (!user) {
       current = "auth";
       screen = Screens.auth();
+    } else if (user.wantsTeacher && !user.isTeacher) {
+      current = "pending";
+      screen = Screens.pendingTeacher();
     } else {
       const p = path();
       const route = routes.find((r) => r.pattern.test(p));

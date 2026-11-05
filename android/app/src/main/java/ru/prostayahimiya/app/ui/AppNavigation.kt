@@ -23,6 +23,7 @@ import ru.prostayahimiya.app.data.Subject
 import ru.prostayahimiya.app.ui.admin.AdminScreen
 import ru.prostayahimiya.app.ui.admin.PracticeEditorScreen
 import ru.prostayahimiya.app.ui.auth.AuthScreen
+import ru.prostayahimiya.app.ui.auth.PendingTeacherScreen
 import ru.prostayahimiya.app.ui.cabinet.CabinetScreen
 import ru.prostayahimiya.app.ui.cabinet.SubmissionScreen
 import ru.prostayahimiya.app.ui.chat.ChatListScreen
@@ -44,6 +45,11 @@ fun AppNavigation(repository: Repository) {
     val signedIn = user != null
     if (!signedIn) {
         AuthScreen(repository)
+        return
+    }
+    // Новый учитель ждёт подтверждения администратора.
+    if (user?.wantsTeacher == true && user?.isTeacher != true) {
+        PendingTeacherScreen(repository)
         return
     }
 

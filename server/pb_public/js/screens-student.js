@@ -22,17 +22,21 @@
   // ======================= Вход и регистрация =======================
   function auth() {
     let register = false;
+    let asTeacher = false;
     let busy = false;
-    // Если учитель создал коды классов, вместо «Класс» ученик вводит код, а класс сервер возьмёт из кода.
-    let codeRequired = false;
-    const values = { name: "", group: "", classCode: "", username: "", password: "", password2: "" };
+    // Учителя появляются в списке, когда администратор подтвердит их. Если у учителя есть коды классов,
+    // вместо «Класс» ученик вводит код, а класс сервер возьмёт из кода.
+    let teachers = [];
+    let teachersLoaded = false;
+    const values = { name: "", group: "", classCode: "", teacher: "", username: "", password: "", password2: "" };
     const formBox = h("div", { class: "auth-form" });
     Api.registrationInfo().then((info) => {
-      if (info.codeRequired !== codeRequired) {
-        codeRequired = !!info.codeRequired;
-        if (register) renderForm();
-      }
+      teachers = info.teachers;
+      teachersLoaded = true;
+      if (teachers.length === 1 && !values.teacher) values.teacher = teachers[0].id;
+      if (register) renderForm();
     });
+    const selected = () => teachers.find((t) => t.id === values.teacher) || null;
 
     function renderForm() {
       const fields = {};
@@ -41,16 +45,37 @@
         return fields[key];
       };
       const error = h("div", { class: "dialog-error", role: "alert" });
-      const submitBtn = button(register ? "Зарегистрироваться" : "Войти", submit, { cls: "btn-block btn-tall" });
+      const submitBtn = button(register ? (asTeacher ? "Отправить заявку учителя" : "Зарегистрироваться") : "Войти", submit, { cls: "btn-block btn-tall" });
+      const student = register && !asTeacher;
+      const codeRequired = !!(selected() && selected().codeRequired);
+
+      // Выбор учителя — обычный список браузера, оформленный как поле ввода.
+      let teacherField = null;
+      if (student) {
+        const id = "teacher-select";
+        const select = h("select", { id, "aria-describedby": id + "-s" },
+          h("option", { value: "" }, teachersLoaded ? (teachers.length ? "Выбери учителя" : "Учителей пока нет") : "Загружаем список…"),
+          teachers.map((t) => h("option", { value: t.id, selected: t.id === values.teacher }, t.name)));
+        select.value = values.teacher;
+        select.addEventListener("change", () => { values.teacher = select.value; renderForm(); });
+        const support = h("div", { class: "field-support", id: id + "-s" }, "Учитель, у которого ты учишься");
+        teacherField = h("div", { class: "field field-select" }, h("label", { class: "field-label", for: id }, "Учитель"), select, support);
+        teacherField.setError = (msg) => {
+          teacherField.classList.toggle("field-error", !!msg);
+          support.textContent = msg || "Учитель, у которого ты учишься";
+        };
+        fields.teacher = teacherField;
+      }
 
       async function submit() {
         if (busy) return;
         Object.values(fields).forEach((f) => f.setError(null));
         error.textContent = "";
         const errors = {};
-        if (register && values.name.trim().length < 2) errors.name = "Впиши имя и фамилию";
-        if (register && !codeRequired && !values.group.trim()) errors.group = "Впиши класс, например 8Б";
-        if (register && codeRequired && !values.classCode.trim()) errors.classCode = "Впиши код класса, который дал учитель";
+        if (register && values.name.trim().length < 2) errors.name = "Впишите имя и фамилию";
+        if (student && !values.teacher) errors.teacher = "Выбери своего учителя";
+        if (student && values.teacher && !codeRequired && !values.group.trim()) errors.group = "Впиши класс, например 8Б";
+        if (student && codeRequired && !values.classCode.trim()) errors.classCode = "Впиши код класса, который дал учитель";
         if (values.username.trim().length < 3) errors.username = "Логин: не меньше 3 символов";
         if (values.password.length < 6) errors.password = "Пароль: не меньше 6 символов";
         if (register && values.password2 !== values.password) errors.passwordConfirm = "Пароли не совпадают";
@@ -58,11 +83,17 @@
         busy = true;
         replace(submitBtn, h("span", { class: "spinner spinner-sm" }));
         try {
-          if (register) await Api.register(values.name, codeRequired ? "" : values.group, values.username, values.password, values.password2, codeRequired ? values.classCode : "");
-          else await Api.login(values.username, values.password);
+          if (register && asTeacher) {
+            await Api.register(values.name, "", values.username, values.password, values.password2, { wantsTeacher: true });
+          } else if (register) {
+            await Api.register(values.name, codeRequired ? "" : values.group, values.username, values.password, values.password2,
+              { teacher: values.teacher, classCode: codeRequired ? values.classCode : "" });
+          } else {
+            await Api.login(values.username, values.password);
+          }
         } catch (e) {
           busy = false;
-          replace(submitBtn, h("span", null, register ? "Зарегистрироваться" : "Войти"));
+          replace(submitBtn, h("span", null, register ? (asTeacher ? "Отправить заявку учителя" : "Зарегистрироваться") : "Войти"));
           if (e.fieldErrors && Object.keys(e.fieldErrors).length) showErrors(e.fieldErrors);
           else error.textContent = e.message;
         }
@@ -79,15 +110,19 @@
 
       replace(formBox,
         segmented([{ value: false, label: "Вход" }, { value: true, label: "Регистрация" }], register, (v) => { register = v; renderForm(); }),
-        register && make("name", { label: "Имя и фамилия", placeholder: "Петя Иванов", autocomplete: "name", autocapitalize: "words" }),
-        register && !codeRequired && make("group", { label: "Класс", placeholder: "8Б", autocapitalize: "characters" }),
-        register && codeRequired && make("classCode", {
+        register && h("div", { class: "role-switch" },
+          UI.chip("🎒 Я ученик", !asTeacher, () => { asTeacher = false; renderForm(); }),
+          UI.chip("👩‍🏫 Я учитель", asTeacher, () => { asTeacher = true; renderForm(); })),
+        register && make("name", { label: "Имя и фамилия", placeholder: asTeacher ? "Ирина Петровна Смирнова" : "Петя Иванов", autocomplete: "name", autocapitalize: "words" }),
+        teacherField,
+        student && values.teacher && !codeRequired && make("group", { label: "Класс", placeholder: "8Б", autocapitalize: "characters" }),
+        student && codeRequired && make("classCode", {
           label: "Код класса", placeholder: "K7Q2XM", autocapitalize: "characters", autocomplete: "off",
           supporting: "Код даёт учитель. По нему ты попадёшь в свой класс",
         }),
         make("username", {
-          label: "Логин", placeholder: "petya", autocomplete: "username", autocapitalize: "none",
-          supporting: register ? "Латинские буквы и цифры, его ты будешь вводить при входе" : null,
+          label: "Логин", placeholder: asTeacher ? "irina" : "petya", autocomplete: "username", autocapitalize: "none",
+          supporting: register ? "Латинские буквы и цифры, его нужно будет вводить при входе" : null,
         }),
         make("password", {
           label: "Пароль", type: "password", autocomplete: register ? "new-password" : "current-password",
@@ -96,9 +131,11 @@
         register && make("password2", { label: "Повтори пароль", type: "password", autocomplete: "new-password", onenter: submit }),
         error,
         submitBtn,
-        h("p", { class: "tiny muted center" }, register
-          ? "Учителю нужно зарегистрироваться так же, а потом администратор сервера даст ему права учителя."
-          : "Забыл пароль? Попроси учителя сбросить его."));
+        h("p", { class: "tiny muted center" }, !register
+          ? "Забыл пароль? Попроси учителя сбросить его."
+          : asTeacher
+            ? "После регистрации администратор подтвердит, что вы учитель. Тогда вас можно будет выбрать в списке учителей, а у вас появится панель учителя."
+            : "Нет своего учителя в списке? Значит, он ещё не зарегистрировался — попроси его."));
       const username = fields.username.input;
       username.addEventListener("input", () => {
         const fixed = username.value.trim().toLowerCase();
@@ -119,6 +156,28 @@
       formBox,
       h("div", { class: "auth-install" }, installSection()),
       h("a", { class: "policy-link", href: "privacy.html" }, "Политика конфиденциальности"));
+  }
+
+  /** Учитель зарегистрировался, но администратор ещё не подтвердил его. */
+  function pendingTeacher() {
+    const user = Api.state.user;
+    const check = button("Проверить ещё раз", async () => {
+      await Api.refreshSession();
+      if (Api.state.user && Api.state.user.isTeacher) {
+        await Api.refreshContent();
+        App.render();
+      } else {
+        UI.toast("Пока не подтверждено");
+      }
+    }, { cls: "btn-block" });
+    return h("div", { class: "auth" },
+      emojiBadge("⏳", "c-primary", "big"),
+      h("h1", null, "Заявка отправлена"),
+      h("p", { class: "muted" }, `${user.name}, вы зарегистрировались как учитель. Администратор сайта проверит заявку и подтвердит её. ` +
+        "После этого у вас появится панель учителя, а ученики смогут выбрать вас при регистрации."),
+      h("div", { class: "auth-form" },
+        check,
+        button("Выйти", () => { Api.logout(); location.hash = ""; }, { kind: "text", cls: "btn-block" })));
   }
 
   // ======================= Раздел «Приложение на телефон» =======================
@@ -400,6 +459,31 @@
     return img;
   }
 
+  /**
+   * Для учителя: кто из учеников какой вариант решает (по классам, которым задана практика).
+   * Вариант считается так же, как у ученика, поэтому список совпадает с тем, что видят ученики.
+   */
+  function variantsOfStudents(p, count) {
+    return Screens.asyncBlock(() => Api.students(), (students) => {
+      const kids = students.filter((st) => Content.isAssigned(p, st.group))
+        .sort((a, b) => a.group.localeCompare(b.group, "ru", { numeric: true }) || a.name.localeCompare(b.name, "ru"));
+      if (!kids.length) return h("p", { class: "small muted" }, "Ученики этой параллели ещё не зарегистрировались.");
+      const groups = [...new Set(kids.map((st) => st.group))];
+      const variants = content.variantsOf(p.id, students);
+      return h("details", { class: "card variants-card" },
+        h("summary", { class: "bold" }, "Кто какой вариант решает"),
+        groups.map((g) => h("div", { class: "mt" },
+          h("div", { class: "small bold" }, g ? `${g} класс` : "Без класса"),
+          Array.from({ length: count }, (_, i) => {
+            const names = kids.filter((st) => st.group === g && variants.get(st.id) === i + 1).map((st) => st.name);
+            return h("div", { class: "variant-line" },
+              h("span", { class: "pill variant-pill" }, `Вариант ${i + 1}`),
+              h("span", { class: "small" }, names.length ? names.join(", ") : "—"));
+          }))),
+        h("p", { class: "tiny muted mt" }, "Варианты раздаются по очереди внутри класса в порядке регистрации: 1, 2, 1, 2… У того, кто уже начал, вариант не меняется."));
+    });
+  }
+
   /** Какой вариант учитель смотрит в каждой практике. */
   const teacherVariant = new Map();
 
@@ -414,7 +498,7 @@
     const variantCount = content.variantCount(p.id);
     const isTeacherView = !!(user && user.isTeacher);
     const variant = !variantCount ? 0
-      : isTeacherView ? Math.min(teacherVariant.get(p.id) || 1, variantCount) : content.variantFor(p.id, user.id);
+      : isTeacherView ? Math.min(teacherVariant.get(p.id) || 1, variantCount) : content.variantFor(p.id);
     const all = content.tasksForVariant(p.id, variant).filter((t) => t.type !== "equation" || Chem.parseEquation(t.text));
     const byType = (type) => all.filter((t) => t.type === type);
     const sections = SECTIONS.filter((s) => byType(s.type).length);
@@ -726,9 +810,12 @@
         menuButton([{ label: "Начать заново", onclick: reset }])),
       h("h2", { class: "home-title" }, p.title),
       variantCount > 0 && (isTeacherView
-        ? h("div", { class: "row-wrap" },
-          h("span", { class: "small muted" }, "Вариант:"),
-          Array.from({ length: variantCount }, (_, i) => UI.chip(`Вариант ${i + 1}`, variant === i + 1, () => { teacherVariant.set(p.id, i + 1); App.render(); })))
+        ? [
+          h("div", { class: "row-wrap" },
+            h("span", { class: "small muted" }, "Вариант:"),
+            Array.from({ length: variantCount }, (_, i) => UI.chip(`Вариант ${i + 1}`, variant === i + 1, () => { teacherVariant.set(p.id, i + 1); App.render(); }))),
+          variantsOfStudents(p, variantCount),
+        ]
         : h("div", null, h("span", { class: "pill variant-pill" }, `Вариант ${variant}`))),
       (() => {
         const d = Content.deadlineOf(p);
@@ -758,7 +845,7 @@
       h("div", { class: "grow" },
         showStudent && h("div", { class: "card-title" }, st ? (st.group ? `${st.name}, ${st.group}` : st.name) : "Ученик удалён"),
         h("div", { class: showStudent ? "small" : "card-title" }, s.practiceTitle),
-        h("div", { class: "tiny muted" }, Content.formatDate(s.created) + (s.total > 0 ? ` · решено ${s.solved} из ${s.total}` : ""),
+        h("div", { class: "tiny muted" }, Content.formatDate(s.created) + (s.total > 0 ? ` · решено ${s.solved} из ${s.total}` : "") + (s.variant ? ` · вариант ${s.variant}` : ""),
           Content.isLate(s, content.practice(s.practice)) && h("span", { class: "err bold" }, " · с опозданием"))),
       gradeBadge(s.grade));
   }
@@ -786,7 +873,12 @@
         h("div", { class: "avatar big" }, (user.name || "?")[0].toUpperCase()),
         h("div", { class: "grow" },
           h("div", { class: "home-title" }, user.name),
-          h("div", { class: "small muted" }, (user.isTeacher ? "Учитель" : user.group ? `${user.group} класс` : "") + ` · логин ${user.username}`))),
+          h("div", { class: "small muted" }, (user.isTeacher ? "Учитель" : user.group ? `${user.group} класс` : "") + ` · логин ${user.username}`),
+          !user.isTeacher && user.teacher && (() => {
+            const line = h("div", { class: "small muted" });
+            Api.teacherName(user.teacher).then((name) => { if (name) line.textContent = `Учитель: ${name}`; });
+            return line;
+          })())),
       sectionLabel("Мои работы"),
       list,
       button("Выйти из аккаунта", logout, { kind: "outline", cls: "btn-block mt-lg" }));
@@ -838,5 +930,5 @@
       s.comment && h("p", { class: "mt" }, "💬 " + s.comment));
   }
 
-  window.Screens = { auth, home, subject, theory, practice, cabinet, submission, submissionCard, asyncBlock };
+  window.Screens = { auth, pendingTeacher, home, subject, theory, practice, cabinet, submission, submissionCard, asyncBlock };
 })();

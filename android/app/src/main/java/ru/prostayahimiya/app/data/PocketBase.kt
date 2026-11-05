@@ -179,6 +179,8 @@ class PocketBase(private val baseUrl: String, private val token: () -> String?) 
         code == "validation_required" -> "Заполни это поле"
         code == "validation_values_mismatch" -> "Пароли не совпадают"
         code == "class_code_required" -> "Впиши код класса, который дал учитель"
+        code == "teacher_required" -> "Выбери своего учителя"
+        code == "no_teachers" -> "Пока нет ни одного учителя. Сначала должен зарегистрироваться учитель"
         code == "class_code_invalid" -> "Неверный код класса. Проверь его у учителя"
         code == "validation_invalid_format" && field == "username" ->
             "Логин: только маленькие латинские буквы, цифры и знаки _ . -"

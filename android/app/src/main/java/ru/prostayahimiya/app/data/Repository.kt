@@ -88,11 +88,27 @@ class Repository(private val context: Context) {
         refreshContent()
     }
 
-    /** Нужен ли код класса для регистрации (его включает учитель). Без связи считаем, что не нужен. */
+    /** Имя учителя ученика (для личного кабинета). */
+    suspend fun teacherName(id: String): String = registrationInfo().teachers.firstOrNull { it.id == id }?.name.orEmpty()
+
+    /** Подтверждённые учителя для регистрации и нужен ли каждому код класса. Без связи — пустой список. */
     suspend fun registrationInfo(): RegistrationInfo =
         runCatching { api.call("GET", api.url("api/registration-info"), RegistrationInfo.serializer()) }.getOrDefault(RegistrationInfo())
 
-    suspend fun register(name: String, group: String, username: String, password: String, passwordConfirm: String, classCode: String = "") {
+    /**
+     * Регистрация. Ученик указывает учителя (и код класса, если учитель его требует),
+     * учитель — wantsTeacher = true и ждёт подтверждения администратора.
+     */
+    suspend fun register(
+        name: String,
+        group: String,
+        username: String,
+        password: String,
+        passwordConfirm: String,
+        classCode: String = "",
+        teacher: String = "",
+        wantsTeacher: Boolean = false,
+    ) {
         api.send(
             "POST",
             api.url("api/collections/users/records"),
@@ -100,6 +116,8 @@ class Repository(private val context: Context) {
                 put("name", name.trim())
                 put("group", group.trim().uppercase())
                 put("classCode", classCode.trim().uppercase())
+                put("teacher", teacher)
+                put("wantsTeacher", wantsTeacher)
                 put("username", normalizeUsername(username))
                 put("password", password)
                 put("passwordConfirm", passwordConfirm)
@@ -136,7 +154,12 @@ class Repository(private val context: Context) {
         val practices = api.listAll("practices", Practice.serializer(), sort = "grade,position,title")
         val tasks = api.listAll("tasks", Task.serializer(), sort = "position")
         val notes = runCatching { api.listAll("notes", Note.serializer(), sort = "subject,grade") }.getOrDefault(emptyList())
-        val data = ContentData(practices, tasks, notes)
+        val variants = if (_user.value?.isTeacher == false) {
+            runCatching { api.call("GET", api.url("api/variants"), VariantsResponse.serializer()).variants }.getOrDefault(emptyMap())
+        } else {
+            emptyMap()
+        }
+        val data = ContentData(practices, tasks, notes, variants)
         _content.value = forUser(data, _user.value)
         _contentError.value = null
         cacheFile.writeText(api.json.encodeToString(ContentData.serializer(), data))
@@ -309,6 +332,8 @@ class Repository(private val context: Context) {
             put("published", practice.published)
             put("classes", buildJsonArray { practice.classes.forEach { add(it) } })
             put("deadline", practice.deadline)
+            // Новая практика принадлежит этому учителю.
+            if (practice.id.isEmpty()) put("owner", _user.value?.id.orEmpty())
         }
         val saved = save("practices", practice.id, body, Practice.serializer())
         _content.value = _content.value.copy(practices = _content.value.practices.filter { it.id != saved.id } + saved)
@@ -419,6 +444,7 @@ class Repository(private val context: Context) {
                     put("subject", subject.key)
                     put("grade", grade)
                     put("text", clean)
+                    put("owner", _user.value?.id.orEmpty())
                 },
             )
         }
@@ -444,6 +470,7 @@ class Repository(private val context: Context) {
                 put("group", group.trim().uppercase())
                 put("code", code)
                 put("active", true)
+                put("owner", _user.value?.id.orEmpty())
             },
         )
     }.getOrThrow()
@@ -506,6 +533,7 @@ class Repository(private val context: Context) {
                     put("author", me.id)
                     put("authorName", me.name)
                     put("fromTeacher", me.isTeacher)
+                    put("teacher", if (me.isTeacher) me.id else me.teacher)
                     put("kind", room.kind)
                     put("group", if (room.isClass) room.key else "")
                     put("student", if (room.isClass) "" else room.key)
@@ -633,7 +661,7 @@ class Repository(private val context: Context) {
         if (user == null || user.isTeacher) return data
         val practices = data.practices.filter { it.isFor(user.group) }
         val ids = practices.map { it.id }.toSet()
-        return ContentData(practices, data.tasks.filter { it.practice in ids }, data.notes)
+        return ContentData(practices, data.tasks.filter { it.practice in ids }, data.notes, data.variants)
     }
 
     private fun loadCache(): ContentData = runCatching {

@@ -136,33 +136,97 @@ routerUse((e) => {
 
 // ---------- Коды классов при регистрации ----------
 
-// Нужен ли код класса для регистрации (сайт и приложение спрашивают это до входа).
+// Для регистрации: список учителей (только подтверждённых) и нужен ли каждому код класса.
 routerAdd("GET", "/api/registration-info", (e) => {
-  const count = e.app.countRecords("class_codes", $dbx.hashExp({ active: true }))
-  return e.json(200, { codeRequired: count > 0 })
+  const teachers = e.app.findRecordsByFilter("users", "isTeacher = true", "name", 0, 0).map((t) => ({
+    id: t.id,
+    name: t.getString("name"),
+    codeRequired: e.app.countRecords("class_codes", $dbx.hashExp({ active: true, owner: t.id })) > 0,
+  }))
+  // codeRequired оставлен для приложений и сайта старой версии.
+  return e.json(200, { teachers, codeRequired: teachers.some((t) => t.codeRequired) })
 })
 
-// Если учитель создал хотя бы один код, ученик регистрируется только по коду, и класс берётся из кода.
+// Регистрация. Учитель регистрируется с галочкой wantsTeacher и ждёт подтверждения администратора.
+// Ученик выбирает учителя; если у учителя есть коды классов — регистрируется только по коду,
+// и класс берётся из кода. Старое приложение учителя не присылает — тогда подставляем единственного учителя.
 onRecordCreateRequest((e) => {
   if (e.hasSuperuserAuth()) return e.next()
-  const count = e.app.countRecords("class_codes", $dbx.hashExp({ active: true }))
-  if (count > 0) {
-    const body = e.requestInfo().body || {}
+  const body = e.requestInfo().body || {}
+  const fail = (field, code, message) => {
+    throw new BadRequestError(message, { [field]: new ValidationError(code, message) })
+  }
+  if (e.record.getBool("wantsTeacher")) {
+    e.record.set("teacher", "")
+    e.record.set("group", "")
+    return e.next()
+  }
+  const teachers = e.app.findRecordsByFilter("users", "isTeacher = true", "created,id", 0, 0)
+  if (!teachers.length) fail("teacher", "no_teachers", "Пока нет ни одного учителя. Сначала должен зарегистрироваться учитель")
+  let teacherId = e.record.getString("teacher")
+  if (!teacherId && teachers.length === 1) teacherId = teachers[0].id
+  const teacher = teachers.find((t) => t.id === teacherId)
+  if (!teacher) fail("teacher", "teacher_required", "Выбери своего учителя")
+  e.record.set("teacher", teacher.id)
+
+  const codes = e.app.countRecords("class_codes", $dbx.hashExp({ active: true, owner: teacher.id }))
+  if (codes > 0) {
     const code = String(body.classCode || "").trim().toUpperCase().replace(/\s+/g, "")
-    if (!code) {
-      throw new BadRequestError("Впиши код класса", {
-        classCode: new ValidationError("class_code_required", "Впиши код класса, который дал учитель"),
-      })
-    }
+    if (!code) fail("classCode", "class_code_required", "Впиши код класса, который дал учитель")
     let record
     try {
-      record = e.app.findFirstRecordByFilter("class_codes", "code = {:code} && active = true", { code })
+      record = e.app.findFirstRecordByFilter("class_codes", "code = {:code} && active = true && owner = {:owner}", { code, owner: teacher.id })
     } catch (_) {
-      throw new BadRequestError("Неверный код класса", {
-        classCode: new ValidationError("class_code_invalid", "Неверный код класса. Проверь его у учителя"),
-      })
+      fail("classCode", "class_code_invalid", "Неверный код класса. Проверь его у учителя")
     }
     e.record.set("group", record.getString("group"))
   }
   e.next()
 }, "users")
+
+// Приложение 1.1 и старая версия сайта в кэше браузера не присылают владельца и учителя.
+// Подставляем их сами: учителю — он сам, ученику — его учитель. Правила доступа проверяют уже заполненные поля.
+function fillOwner(e) {
+  const auth = e.auth
+  if (auth && auth.getBool("isTeacher") && !e.record.getString("owner")) e.record.set("owner", auth.id)
+  e.next()
+}
+onRecordCreateRequest(fillOwner, "practices", "notes", "class_codes")
+onRecordCreateRequest((e) => {
+  const auth = e.auth
+  if (auth && !e.record.getString("teacher")) {
+    e.record.set("teacher", auth.getBool("isTeacher") ? auth.id : auth.getString("teacher"))
+  }
+  e.next()
+}, "messages")
+
+// Первый подтверждённый учитель забирает себе практики без владельца (стартовую практику новой установки).
+onRecordAfterUpdateSuccess((e) => {
+  if (e.record.getBool("isTeacher")) {
+    e.app.findRecordsByFilter("practices", 'owner = ""', "", 0, 0).forEach((p) => {
+      p.set("owner", e.record.id)
+      e.app.saveNoValidate(p)
+    })
+  }
+  e.next()
+}, "users")
+
+// ---------- Варианты ----------
+
+// Вариант ученика в каждой практике, где есть варианты. Раздаём по очереди внутри класса (у своего учителя) в порядке
+// регистрации: 1-й ученик — вариант 1, 2-й — вариант 2, …, потом снова 1. Новый ученик встаёт в конец,
+// поэтому у остальных вариант не меняется. Список одноклассников ученик не видит — считает сервер.
+routerAdd("GET", "/api/variants", (e) => {
+  const auth = e.requestInfo().auth
+  const mates = e.app.findRecordsByFilter("users", "isTeacher = false && group = {:g} && teacher = {:t}", "created,id", 0, 0,
+    { g: auth.getString("group"), t: auth.getString("teacher") })
+  const index = Math.max(0, mates.findIndex((u) => u.id === auth.id))
+  const counts = {}
+  e.app.findRecordsByFilter("tasks", "variant > 0", "", 0, 0).forEach((t) => {
+    const p = t.getString("practice")
+    counts[p] = Math.max(counts[p] || 0, t.getInt("variant"))
+  })
+  const variants = {}
+  Object.keys(counts).forEach((p) => { variants[p] = (index % counts[p]) + 1 })
+  return e.json(200, { variants })
+}, $apis.requireAuth("users"))

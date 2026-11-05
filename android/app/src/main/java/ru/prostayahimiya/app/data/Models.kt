@@ -20,6 +20,12 @@ data class User(
     /** Класс ученика, например «8Б». */
     val group: String = "",
     val isTeacher: Boolean = false,
+    /** Когда ученик зарегистрировался: по этому порядку раздаются варианты. */
+    val created: String = "",
+    /** Учитель ученика. */
+    val teacher: String = "",
+    /** Зарегистрировался как учитель и ждёт подтверждения администратора. */
+    val wantsTeacher: Boolean = false,
 )
 
 @Serializable
@@ -181,6 +187,8 @@ data class ContentData(
     val practices: List<Practice> = emptyList(),
     val tasks: List<Task> = emptyList(),
     val notes: List<Note> = emptyList(),
+    /** Варианты текущего ученика: id практики → номер варианта (считает сервер, /api/variants). */
+    val variants: Map<String, Int> = emptyMap(),
 ) {
     fun practice(id: String): Practice? = practices.firstOrNull { it.id == id }
 
@@ -190,15 +198,24 @@ data class ContentData(
     fun variantCount(practiceId: String): Int = tasksOf(practiceId).maxOfOrNull { it.variant }?.coerceAtLeast(0) ?: 0
 
     /**
-     * Вариант ученика в практике. Выбирается сам по аккаунту (так же, как на сайте), поэтому у соседей по парте
-     * он разный, а у одного ученика — всегда один и тот же.
+     * Вариант текущего ученика в практике. Варианты раздаются по очереди внутри класса в порядке
+     * регистрации (1, 2, 1, 2…) — это считает сервер, потому что ученик не видит список одноклассников.
      */
-    fun variantFor(practiceId: String, userId: String): Int {
+    fun variantFor(practiceId: String): Int {
         val count = variantCount(practiceId)
         if (count == 0) return 0
-        var hash = 0L
-        for (ch in "$userId:$practiceId") hash = (hash * 31 + ch.code) % 2147483647L
-        return (hash % count).toInt() + 1
+        return variants[practiceId]?.takeIf { it in 1..count } ?: 1
+    }
+
+    /** Для учителя: вариант каждого ученика по тому же правилу, что на сервере (id ученика → вариант). */
+    fun variantsOf(practiceId: String, students: List<User>): Map<String, Int> {
+        val count = variantCount(practiceId)
+        if (count == 0) return emptyMap()
+        return students.sortedWith(compareBy({ it.created }, { it.id }))
+            .groupBy { it.group }
+            .values
+            .flatMap { list -> list.mapIndexed { i, st -> st.id to (i % count) + 1 } }
+            .toMap()
     }
 
     /** Задания, которые видит ученик этого варианта: общие и своего варианта. */
@@ -207,7 +224,7 @@ data class ContentData(
 
     /** Задания практики для пользователя (учитель по умолчанию видит первый вариант). */
     fun tasksFor(practiceId: String, user: User?): List<Task> {
-        val variant = if (user != null && !user.isTeacher) variantFor(practiceId, user.id) else minOf(1, variantCount(practiceId))
+        val variant = if (user != null && !user.isTeacher) variantFor(practiceId) else minOf(1, variantCount(practiceId))
         return tasksForVariant(practiceId, variant)
     }
 
@@ -241,8 +258,15 @@ data class ClassCode(
     val active: Boolean = false,
 )
 
+/** Учитель в списке при регистрации. codeRequired — регистрироваться к нему можно только по коду класса. */
 @Serializable
-data class RegistrationInfo(val codeRequired: Boolean = false)
+data class TeacherInfo(val id: String = "", val name: String = "", val codeRequired: Boolean = false)
+
+@Serializable
+data class RegistrationInfo(val teachers: List<TeacherInfo> = emptyList(), val codeRequired: Boolean = false)
+
+@Serializable
+data class VariantsResponse(val variants: Map<String, Int> = emptyMap())
 
 /** Версия приложения, выложенная на сайте (урокискириллом.рф/app). */
 @Serializable

@@ -752,3 +752,16 @@ p { margin: 0; }
 .variant-pill { background: var(--secondary-container); color: var(--on-secondary-container); border-color: transparent; }
 .variant-inline { margin-left: 8px; }
 .install-more { margin-top: 12px; align-self: flex-start; }
+.variants-card summary { cursor: pointer; }
+.variant-line { display: flex; align-items: baseline; gap: 8px; margin-top: 6px; }
+.variant-line .pill { flex: none; }
+
+/* ---------- Регистрация: выбор учителя ---------- */
+.role-switch { display: flex; gap: 8px; flex-wrap: wrap; }
+.field-select select {
+  width: 100%; padding: 14px 16px; border: 1px solid var(--outline); border-radius: 8px;
+  background: var(--card); color: var(--on-bg); font: inherit; appearance: auto;
+}
+.field-select select:focus { border: 2px solid var(--primary); padding: 13px 15px; outline: none; }
+.field-select.field-error select { border-color: var(--error); }
+.field-select.field-error .field-support { color: var(--error); }
