@@ -32,6 +32,10 @@ data class User(
     val graduatedFrom: String = "",
 )
 
+/** Задания от нейросети: проверенные сервером задания (ещё не сохранены), сколько отброшено и сколько запросов осталось. */
+@Serializable
+data class GeneratedTasks(val tasks: List<Task> = emptyList(), val dropped: Int = 0, val left: Int? = null)
+
 /** Итог «Нового учебного года». */
 @Serializable
 data class NewYearResult(val moved: Int = 0, val graduated: Int = 0, val deadlinesCleared: Int = 0, val messagesDeleted: Int = 0)

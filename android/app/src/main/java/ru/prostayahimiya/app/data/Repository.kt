@@ -688,6 +688,25 @@ class Repository(private val context: Context) {
         runCatching { chatThreads() }.onSuccess { list -> _unreadChats.value = list.count { it.unread } }
     }
 
+    /**
+     * Задания от нейросети (YandexGPT) по запросу учителя. Сервер их проверяет, но в практику не сохраняет:
+     * учитель сам выбирает, какие добавить.
+     */
+    suspend fun generateTasks(practiceId: String, prompt: String, count: Int, types: List<TaskType>): GeneratedTasks = guard {
+        api.call(
+            "POST",
+            api.url("api/generate-tasks"),
+            GeneratedTasks.serializer(),
+            buildJsonObject {
+                put("practice", practiceId)
+                put("prompt", prompt.trim())
+                put("count", count)
+                put("types", buildJsonArray { types.forEach { add(it.key) } })
+            },
+            slow = true,
+        )
+    }.getOrThrow()
+
     /** Новый учебный год: все ученики учителя — в следующий класс, 11-е — в выпускники. */
     suspend fun newYear(clearDeadlines: Boolean, clearClassChats: Boolean): NewYearResult = guard {
         api.call(

@@ -91,9 +91,15 @@
       Object.entries(data).forEach(([field, value]) => { fields[field] = fieldMessage(field, value && value.code); });
     } catch (_) { /* не JSON */ }
     const firstField = Object.values(fields)[0];
+    // Наши сообщения с сервера написаны по-русски («Срок контрольной прошёл…») — их показываем как есть.
+    // Стандартные сообщения PocketBase (по-английски) заменяем на понятные ниже.
+    let serverMessage = "";
+    try { serverMessage = String(JSON.parse(text).message || ""); } catch (_) { /* не JSON */ }
+    if (!/[а-яё]/i.test(serverMessage)) serverMessage = "";
     let message;
     if (path.endsWith("auth-with-password") && status === 400) message = "Неверный логин или пароль";
     else if (firstField) message = firstField;
+    else if (serverMessage) message = serverMessage;
     else if (status === 401) message = "Нужно войти в аккаунт заново";
     else if (status === 403) message = "Нет доступа";
     else if (status === 404) message = "Не найдено. Возможно, запись уже удалили.";
@@ -730,6 +736,14 @@
     async journal() {
       const [students, submissions] = await Promise.all([this.students(), this.allSubmissions(false)]);
       return { students, submissions };
+    },
+
+    /**
+     * Задания от нейросети (YandexGPT) по запросу учителя. Сервер проверяет их, но в практику не сохраняет:
+     * учитель сам выбирает, какие добавить. → {tasks: [{type, text, answer, options, multiple}], dropped, left}
+     */
+    generateTasks(practiceId, prompt, count, types) {
+      return guard(request("POST", "api/generate-tasks", { body: { practice: practiceId, prompt, count, types } }));
     },
 
     /** Новый учебный год: все ученики учителя — в следующий класс, 11-е — в выпускники. */

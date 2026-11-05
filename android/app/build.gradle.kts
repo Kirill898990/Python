@@ -38,8 +38,8 @@ android {
         // к компьютеру в локальной сети (например, к серверу на своём ПК). RuStore это не мешает.
         targetSdk = 36
         // Перед каждой новой загрузкой в RuStore увеличивайте versionCode на 1.
-        versionCode = 3
-        versionName = "1.2"
+        versionCode = 4
+        versionName = "1.3"
     }
 
     signingConfigs {

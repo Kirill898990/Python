@@ -4,7 +4,7 @@
  */
 (function () {
   "use strict";
-  const { h, replace, icon, topBar, sectionLabel, button, field, segmented, chip, emptyBox, dialog, confirm, toast, gradeBadge } = UI;
+  const { h, replace, icon, topBar, sectionLabel, button, field, segmented, chip, emptyBox, dialog, confirm, toast, gradeBadge, feedback } = UI;
   const { content } = Api;
 
   const TYPES = {
@@ -520,6 +520,7 @@
         h("p", { class: "small bold mt" }, "Добавить задание:"),
         h("div", { class: "row-wrap" }, Object.entries(TYPES).map(([type, info]) =>
           button("+ " + info.title, () => editTask({ practice: id, type, text: "", answer: "", options: [], position: Math.max(0, ...tasks.map((x) => x.position || 0)) + 1 }), { kind: "outline" }))),
+        button("✨ Сгенерировать нейросетью", () => generateDialog(tasks), { cls: "btn-block mt" }),
         button("Удалить практику", deletePractice, { kind: "outline", cls: "btn-danger btn-block mt-lg" }));
     }
 
@@ -547,6 +548,116 @@
           h("button", { class: "icon-btn", "aria-label": "Выше", title: "Выше", disabled: index === 0, onclick: () => move(tasks, index, index - 1) }, "▲"),
           h("button", { class: "icon-btn", "aria-label": "Ниже", title: "Ниже", disabled: index === tasks.length - 1, onclick: () => move(tasks, index, index + 1) }, "▼")),
         h("button", { class: "icon-btn", "aria-label": "Удалить задание", title: "Удалить", onclick: () => deleteTask(t) }, "🗑️"));
+    }
+
+    /** Как задание будет выглядеть в списке: текст и правильный ответ (для предпросмотра заданий от нейросети). */
+    function describe(t) {
+      const eq = t.type === "equation" ? Chem.parseEquation(t.text) : null;
+      const molar = t.type === "molar" ? Chem.molarMass(t.text) : null;
+      const options = t.options || [];
+      const right = new Set(Chem.parseChoice(t.answer));
+      return {
+        text: eq ? Chem.prettyEquation(eq) : molar ? `M(${Chem.pretty(t.text)})` : t.text,
+        options: t.type === "choice" ? options.map((o, k) => (right.has(k + 1) ? "✅ " : "▫️ ") + Chem.prettyIfFormula(o)) : [],
+        answer: {
+          formula: () => Chem.pretty(t.answer),
+          equation: () => (eq ? Chem.prettyEquation(eq, Chem.parseCoefficients(t.answer)) : ""),
+          fill: () => String(t.answer).split("|").map((w) => w.split("/")[0]).join("; "),
+          molar: () => (molar && molar.ok ? Chem.formatNumber(molar.value) + " г/моль" : ""),
+        }[t.type],
+      };
+    }
+
+    /** Окно «Сгенерировать нейросетью»: запрос → задания на выбор → «Добавить выбранные». */
+    function generateDialog(tasks) {
+      const types = new Set(["choice", "fill", "formula", "molar", "equation"]);
+      let count = 10;
+      let prompt = "";
+      dialog((close) => {
+        const body = h("div", { class: "stack" });
+        const actions = h("div", { class: "dialog-actions" });
+        const shell = h("div", { class: "stack" }, body, actions);
+
+        function form(message) {
+          const countChips = h("div", { class: "row-wrap" });
+          const renderCount = () => replace(countChips, [5, 10, 15].map((n) => chip(String(n), count === n, () => { count = n; renderCount(); })));
+          renderCount();
+          const typeChips = h("div", { class: "row-wrap" });
+          const renderTypes = () => replace(typeChips, Object.entries(TYPES).map(([key, info]) => chip(`${info.emoji} ${info.title}`, types.has(key), () => {
+            if (types.has(key) && types.size > 1) types.delete(key); else types.add(key);
+            renderTypes();
+          })));
+          renderTypes();
+          replace(body,
+            h("p", { class: "small muted" }, "Напишите тему и что проверить — нейросеть YandexGPT составит задания, а сайт проверит формулы, уравнения и ответы. " +
+              "Ничего не добавится, пока вы сами не выберете."),
+            field({ label: "Что нужно", multiline: true, rows: 3, value: prompt, placeholder: "Например: оксиды — классификация, формулы по названию, уравнения получения",
+              oninput: (v) => { prompt = v; } }),
+            h("div", { class: "small bold" }, "Сколько заданий"), countChips,
+            h("div", { class: "small bold" }, "Какие задания"), typeChips,
+            message && feedback(message, "error"));
+          replace(actions, button("Отмена", close, { kind: "text" }), button("✨ Сгенерировать", generate));
+        }
+
+        async function generate() {
+          if (prompt.trim().length < 3) return form("Напишите, какие задания нужны: тему и что проверить");
+          replace(body, h("div", { class: "center stack" }, h("span", { class: "spinner" }),
+            h("p", { class: "muted" }, "Нейросеть составляет задания… Обычно это 10–40 секунд.")));
+          replace(actions);
+          try {
+            const r = await Api.generateTasks(id, prompt.trim(), count, [...types]);
+            results(r);
+          } catch (e) {
+            form(e.message || "Не получилось");
+          }
+        }
+
+        function results(r) {
+          const chosen = new Set(r.tasks.map((_, i) => i));
+          const addBtn = button("", add);
+          const updateAdd = () => { replace(addBtn, h("span", null, `Добавить выбранные (${chosen.size})`)); addBtn.disabled = !chosen.size; };
+          updateAdd();
+          replace(body,
+            h("p", { class: "small" }, `Нейросеть предложила ${r.tasks.length} ${Content.tasksWord(r.tasks.length)}.` +
+              (r.dropped ? ` Ещё ${r.dropped} с ошибками сайт убрал сам.` : "") + " Снимите галочки с ненужных."),
+            r.tasks.map((t, i) => {
+              const d = describe(t);
+              const box = h("input", { type: "checkbox", checked: true, "aria-label": "Добавить это задание" });
+              box.addEventListener("change", () => { if (box.checked) chosen.add(i); else chosen.delete(i); updateAdd(); });
+              const info = TYPES[t.type] || TYPES.question;
+              return h("label", { class: "card gen-task" }, box,
+                h("div", { class: "grow" },
+                  h("div", { class: "task-label" }, `${info.emoji} ${info.title}`),
+                  h("div", { class: "task-row-text" }, d.text),
+                  d.options.length > 0 && h("div", { class: "small" }, d.options.map((o) => h("div", null, o))),
+                  d.answer && d.answer() && h("div", { class: "small ok" }, "Ответ: " + d.answer())));
+            }),
+            r.left != null && h("p", { class: "tiny muted" }, `Осталось запросов к нейросети на сегодня: ${r.left}`));
+          replace(actions, button("Ещё раз", generate, { kind: "text" }), addBtn);
+
+          async function add() {
+            addBtn.disabled = true;
+            let position = Math.max(0, ...tasks.map((x) => x.position || 0));
+            let added = 0;
+            try {
+              for (const i of [...chosen].sort((a, b) => a - b)) {
+                const t = r.tasks[i];
+                await Api.saveTask({ practice: id, type: t.type, text: t.text, answer: t.answer, options: t.options, multiple: t.multiple, position: ++position });
+                added++;
+              }
+              close();
+              toast(`Добавлено заданий: ${added}`);
+            } catch (e) {
+              toast((e.message || "Ошибка") + (added ? ` (добавлено ${added})` : ""));
+              addBtn.disabled = false;
+            }
+            renderTasks();
+          }
+        }
+
+        form();
+        return { title: "✨ Задания от нейросети", body: shell, actions: [] };
+      }, { wide: true });
     }
 
     async function serverAction(action, success) {

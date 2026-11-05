@@ -132,6 +132,7 @@ fun PracticeEditorScreen(practiceId: String, repository: Repository, onBack: () 
     var editing by remember { mutableStateOf<Task?>(null) }
     var deletingTask by remember { mutableStateOf<Task?>(null) }
     var deletingPractice by remember { mutableStateOf(false) }
+    var generating by remember { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val tasks = if (currentId.isEmpty()) emptyList() else content.tasksOf(currentId)
@@ -334,6 +335,9 @@ fun PracticeEditorScreen(practiceId: String, repository: Repository, onBack: () 
                             }) { Text("+ ${type.shortTitle()}") }
                         }
                     }
+                    Button(onClick = { generating = true }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                        Text("✨ Сгенерировать нейросетью")
+                    }
                 }
                 item {
                     OutlinedButton(
@@ -344,6 +348,19 @@ fun PracticeEditorScreen(practiceId: String, repository: Repository, onBack: () 
                 }
             }
         }
+    }
+
+    if (generating && currentId.isNotEmpty()) {
+        GenerateTasksDialog(
+            practiceId = currentId,
+            nextPosition = (tasks.maxOfOrNull { it.position } ?: 0) + 1,
+            repository = repository,
+            onDismiss = { generating = false },
+            onAdded = { n ->
+                generating = false
+                scope.launch { snackbar.showSnackbar("Добавлено заданий: $n") }
+            },
+        )
     }
 
     editing?.let { task ->
@@ -419,7 +436,7 @@ fun PracticeEditorScreen(practiceId: String, repository: Repository, onBack: () 
     }
 }
 
-private fun TaskType.shortTitle() = when (this) {
+internal fun TaskType.shortTitle() = when (this) {
     TaskType.QUESTION -> "Вопрос"
     TaskType.CHOICE -> "Тест"
     TaskType.FILL -> "Пропуски"
@@ -428,7 +445,7 @@ private fun TaskType.shortTitle() = when (this) {
     TaskType.EQUATION -> "Уравнение"
 }
 
-private fun TaskType.emoji() = when (this) {
+internal fun TaskType.emoji() = when (this) {
     TaskType.QUESTION -> "❓"
     TaskType.CHOICE -> "☑️"
     TaskType.FILL -> "✏️"
@@ -445,7 +462,7 @@ private sealed interface ImageChange {
 }
 
 /** Правильный ответ задания, как его показать учителю в списке. */
-private fun Task.answerSummary(): String? = when (taskType) {
+internal fun Task.answerSummary(): String? = when (taskType) {
     TaskType.QUESTION -> null
     TaskType.FORMULA -> Chem.pretty(answer)
     TaskType.EQUATION -> equation?.pretty(coefficients) ?: answer
