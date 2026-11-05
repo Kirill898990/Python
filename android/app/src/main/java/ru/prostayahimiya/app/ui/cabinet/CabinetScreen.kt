@@ -138,7 +138,11 @@ private fun ProfileCard(user: User, teacherName: String) {
                 Text(user.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                 Text(
                     buildString {
-                        if (user.isTeacher) append("Учитель") else if (user.group.isNotBlank()) append("${user.group} класс")
+                        when {
+                            user.isTeacher -> append("Учитель")
+                            user.graduated -> append("Выпускник ${user.graduatedFrom}".trim())
+                            user.group.isNotBlank() -> append("${user.group} класс")
+                        }
                         append(" · логин ${user.username}")
                     },
                     style = MaterialTheme.typography.bodyMedium,

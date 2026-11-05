@@ -39,3 +39,13 @@ class GradeProgressTest {
         assertEquals(listOf("c9", "x"), table.practices.map { it.id })
     }
 }
+
+class NextGroupTest {
+    @org.junit.Test fun nextYear() {
+        org.junit.Assert.assertEquals("9А", ru.prostayahimiya.app.data.nextGroup("8А"))
+        org.junit.Assert.assertEquals("11Б", ru.prostayahimiya.app.data.nextGroup("10Б"))
+        org.junit.Assert.assertEquals(null, ru.prostayahimiya.app.data.nextGroup("11А"))
+        org.junit.Assert.assertEquals("Кружок", ru.prostayahimiya.app.data.nextGroup("Кружок"))
+        org.junit.Assert.assertEquals("6", ru.prostayahimiya.app.data.nextGroup("5"))
+    }
+}

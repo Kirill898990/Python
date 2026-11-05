@@ -1,5 +1,7 @@
 package ru.prostayahimiya.app.ui.home
 
+import androidx.compose.ui.unit.sp
+import androidx.compose.material3.AlertDialog
 import ru.prostayahimiya.app.data.gradeOf
 import ru.prostayahimiya.app.data.deadlineStatus
 import ru.prostayahimiya.app.data.Practice
@@ -116,6 +118,29 @@ fun HomeScreen(
         }
     }
 
+    // Выпускнику — один раз окно с поздравлением.
+    val me = user
+    var congrats by remember(me?.id) { mutableStateOf(me != null && me.graduated && !repository.graduateGreeted(me.id)) }
+    if (congrats && me != null) {
+        AlertDialog(
+            onDismissRequest = { congrats = false; repository.setGraduateGreeted(me.id) },
+            title = { Text("🎓 Поздравляем!") },
+            text = {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                    Text("🎉", fontSize = 64.sp)
+                    Text(
+                        "Ты молодец, поздравляю с окончанием школы!",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
+            },
+            confirmButton = { TextButton(onClick = { congrats = false; repository.setGraduateGreeted(me.id) }) { Text("Спасибо!") } },
+        )
+    }
+
     Scaffold(containerColor = MaterialTheme.colorScheme.background) { padding ->
         PullToRefreshBox(
             isRefreshing = refreshing,
@@ -204,11 +229,15 @@ fun HomeScreen(
                         },
                     )
                 }
-                if (totalPractices > 0 && user?.isTeacher != true) {
+                val graduate = user?.graduated == true
+                if (graduate) {
+                    item { GraduateCard(user?.graduatedFrom.orEmpty()) }
+                }
+                if (totalPractices > 0 && user?.isTeacher != true && !graduate) {
                     item { ProgressCard(submittedPractices, totalPractices, myGrade) }
                 }
                 // Несданные практики со сроком, ближайшие сверху.
-                val upcoming = if (user?.isTeacher == true) emptyList() else assigned
+                val upcoming = if (user?.isTeacher == true || graduate) emptyList() else assigned
                     .filter { p -> p.deadlineInstant != null && submissions.none { it.practice == p.id } }
                     .sortedBy { it.deadlineInstant }
                     .take(4)
@@ -348,6 +377,29 @@ private fun Header(grades: String, user: User?, onOpenCabinet: () -> Unit) {
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+            }
+        }
+    }
+}
+
+/** Карточка выпускника на главной. */
+@Composable
+private fun GraduateCard(from: String) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+            EmojiBadge("🎓", MaterialTheme.colorScheme.primary)
+            Column(Modifier.weight(1f).padding(start = 16.dp)) {
+                Text(
+                    "Ты выпускник" + if (from.isNotBlank()) " $from" else "",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+                Text(
+                    "Твои работы и оценки остаются в личном кабинете. Тренажёр и справочник всегда открыты.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
                 )
             }
         }

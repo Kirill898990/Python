@@ -688,6 +688,24 @@ class Repository(private val context: Context) {
         runCatching { chatThreads() }.onSuccess { list -> _unreadChats.value = list.count { it.unread } }
     }
 
+    /** Новый учебный год: все ученики учителя — в следующий класс, 11-е — в выпускники. */
+    suspend fun newYear(clearDeadlines: Boolean, clearClassChats: Boolean): NewYearResult = guard {
+        api.call(
+            "POST",
+            api.url("api/new-year"),
+            NewYearResult.serializer(),
+            buildJsonObject {
+                put("clearDeadlines", clearDeadlines)
+                put("clearClassChats", clearClassChats)
+            },
+        )
+    }.getOrThrow()
+
+    /** Поздравление выпускнику показываем один раз на телефоне. */
+    fun graduateGreeted(userId: String): Boolean = appPrefs.getBoolean("graduate_seen_$userId", false)
+
+    fun setGraduateGreeted(userId: String) = appPrefs.edit { putBoolean("graduate_seen_$userId", true) }
+
     // ---------- Уведомления ----------
 
     private val appPrefs = context.getSharedPreferences("app", Context.MODE_PRIVATE)
@@ -743,7 +761,7 @@ class Repository(private val context: Context) {
 
         var known: Set<String>? = null
         var reminded: Set<String>? = null
-        if (!me.isTeacher) {
+        if (!me.isTeacher && !me.graduated) {
             // Новые практики и контрольные своего класса.
             val practices = api.listAll("practices", Practice.serializer())
                 .filter { it.published && it.isFor(me.group) && it.isAssignedTo(me.group) }
@@ -795,7 +813,7 @@ class Repository(private val context: Context) {
                 }
                 reminded = wasReminded + soon.map { it.id }
             }
-        } else {
+        } else if (me.isTeacher) {
             // Учителю: новые работы на проверку.
             val works = fresh("works", "submissions", "created", "grade = 0", Submission.serializer(), expand = "student") { it.created }
             if (works.isNotEmpty()) {

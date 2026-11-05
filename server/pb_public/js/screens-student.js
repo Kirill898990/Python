@@ -257,11 +257,12 @@
       h("img", { class: "banner banner-lab", src: "images/banner-lab.jpg", alt: "" }),
       user && user.isTeacher && menuCard("#/admin/works", "📋", "c-primary", "Панель учителя", "Проверка работ, оценки и задания", true),
       user && Chat.homeCard(),
-      totalPractices > 0 && !(user && user.isTeacher) && h("div", { class: "card" },
+      user && user.graduated && graduateCard(user),
+      totalPractices > 0 && !(user && user.isTeacher) && !user.graduated && h("div", { class: "card" },
         h("div", { class: "card-title" }, submitted === totalPractices ? "Все практики сданы! 🎉" : "Твой прогресс" + (myGrade ? ` · ${myGrade} класс` : "")),
         h("p", { class: "muted small mt" }, `Сдано ${submitted} из ${totalPractices} ${Content.practicesWord(totalPractices)}`),
         h("div", { class: "mt" }, progressBar(submitted / totalPractices))),
-      !(user && user.isTeacher) && deadlinesCard(),
+      !(user && user.isTeacher) && !(user && user.graduated) && deadlinesCard(),
       sectionLabel("Материалы к занятиям"),
       menuCard("#/subject/biology", "🧬", "c-biology", "Практики по биологии", `${Content.gradeRange("biology")} класс`),
       menuCard("#/subject/chemistry", "⚗️", "c-chemistry", "Практики по химии", `${Content.gradeRange("chemistry")} класс`),
@@ -276,6 +277,27 @@
           icon("star", 18), h("span", null, "Оставить отзыв"))),
       installSection(),
       h("p", { class: "center" }, h("a", { class: "policy-link", href: "privacy.html" }, "Политика конфиденциальности")));
+  }
+
+  /** Выпускник: карточка на главной и один раз — окно с поздравлением. */
+  function graduateCard(user) {
+    const key = "graduate_seen_" + user.id;
+    if (!Api.storage.get(key, false)) {
+      // Отмечаем сразу: главная может нарисоваться ещё раз, пока окно не открылось.
+      Api.storage.set(key, true);
+      setTimeout(() => {
+        UI.dialog((close) => ({
+          title: "🎓 Поздравляем!",
+          body: [h("div", { class: "congrats" }, "🎉"), h("p", { class: "congrats-text" }, "Ты молодец, поздравляю с окончанием школы!")],
+          actions: [button("Спасибо!", () => close(), { kind: "text" })],
+        }));
+      }, 300);
+    }
+    return h("div", { class: "card card-highlight row" },
+      emojiBadge("🎓", "c-primary"),
+      h("div", { class: "grow" },
+        h("div", { class: "card-title" }, "Ты выпускник" + (user.graduatedFrom ? ` ${user.graduatedFrom}` : "")),
+        h("div", { class: "card-sub muted" }, "Твои работы и оценки остаются в личном кабинете. Тренажёр и справочник всегда открыты.")));
   }
 
   /** «Сроки сдачи»: несданные практики со сроком, ближайшие сверху. */
@@ -1060,7 +1082,7 @@
         h("div", { class: "avatar big" }, (user.name || "?")[0].toUpperCase()),
         h("div", { class: "grow" },
           h("div", { class: "home-title" }, user.name),
-          h("div", { class: "small muted" }, (user.isTeacher ? "Учитель" : user.group ? `${user.group} класс` : "") + ` · логин ${user.username}`),
+          h("div", { class: "small muted" }, (user.isTeacher ? "Учитель" : user.graduated ? `Выпускник ${user.graduatedFrom}`.trim() : user.group ? `${user.group} класс` : "") + ` · логин ${user.username}`),
           !user.isTeacher && user.teacher && (() => {
             const line = h("div", { class: "small muted" });
             Api.teacherName(user.teacher).then((name) => { if (name) line.textContent = `Учитель: ${name}`; });

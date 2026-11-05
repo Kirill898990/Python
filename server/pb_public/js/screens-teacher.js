@@ -308,23 +308,76 @@
 
   // ----- Ученики -----
   function students() {
-    return Screens.asyncBlock(() => Api.students(), (items) => {
+    const box = Screens.asyncBlock(() => Api.students(), (all) => {
+      const items = all.filter((s) => !s.graduated);
+      const graduates = all.filter((s) => s.graduated);
       const groups = [...new Set(items.map((s) => s.group).filter(Boolean))].sort(byClass);
       const codes = [sectionLabel("Коды классов"), classCodes(groups), sectionLabel("Ученики")];
-      if (!items.length) return [codes, emptyBox("👥", "Пока никто из учеников не зарегистрировался")];
+      const row = (st) => h("div", { class: "card student-row" },
+        h("button", { class: "student-main", type: "button", onclick: () => resetPassword(st) },
+          h("div", { class: "card-title" }, st.name),
+          h("div", { class: "card-sub" }, [st.graduated ? `выпускник ${st.graduatedFrom}` : st.group && `${st.group} класс`, `логин ${st.username}`].filter(Boolean).join(" · "))),
+        h("button", {
+          class: "icon-btn", type: "button", "aria-label": `Написать: ${st.name}`, title: "Написать ученику",
+          onclick: () => Chat.open({ kind: "private", student: st.id }, st.group ? `${st.name}, ${st.group}` : st.name),
+        }, icon("chat")));
+      if (!items.length && !graduates.length) return [codes, emptyBox("👥", "Пока никто из учеников не зарегистрировался")];
       return [
         codes,
         h("p", { class: "muted small" }, `Учеников: ${items.length}. Нажмите на ученика, чтобы сбросить ему пароль, или на 💬, чтобы написать ему.`),
-        items.map((st) => h("div", { class: "card student-row" },
-          h("button", { class: "student-main", type: "button", onclick: () => resetPassword(st) },
-            h("div", { class: "card-title" }, st.name),
-            h("div", { class: "card-sub" }, [st.group && `${st.group} класс`, `логин ${st.username}`].filter(Boolean).join(" · "))),
-          h("button", {
-            class: "icon-btn", type: "button", "aria-label": `Написать: ${st.name}`, title: "Написать ученику",
-            onclick: () => Chat.open({ kind: "private", student: st.id }, st.group ? `${st.name}, ${st.group}` : st.name),
-          }, icon("chat")))),
+        items.map(row),
+        items.length > 0 && newYearCard(items, () => box.reload()),
+        graduates.length > 0 && [sectionLabel(`Выпускники · ${graduates.length}`), graduates.map(row)],
       ];
     });
+    return box;
+  }
+
+  /** «Новый учебный год»: все — в следующий класс, 11-е — в выпускники. С подтверждением и списком, кто куда. */
+  function newYearCard(items, done) {
+    const open = () => dialog((close) => {
+      const counts = new Map();
+      items.forEach((st) => counts.set(st.group || "", (counts.get(st.group || "") || 0) + 1));
+      const lines = [...counts.keys()].sort(byClass).map((g) => {
+        const next = Content.nextGroup(g);
+        const n = counts.get(g);
+        if (next === null) return h("li", null, h("b", null, g), " → 🎓 выпускники", h("span", { class: "muted" }, ` · ${n}`));
+        if (next === g) return h("li", { class: "muted" }, `${g || "без класса"} — без изменений · ${n}`);
+        return h("li", null, h("b", null, g), " → ", h("b", null, next), h("span", { class: "muted" }, ` · ${n}`));
+      });
+      const deadlines = h("input", { type: "checkbox", checked: true });
+      const chats = h("input", { type: "checkbox" });
+      const error = h("div", { class: "dialog-error" });
+      const go = button("Перевести", async () => {
+        go.disabled = true;
+        try {
+          const r = await Api.newYear(deadlines.checked, chats.checked);
+          close();
+          toast(`Готово: в следующий класс — ${r.moved}, выпускников — ${r.graduated}`);
+          await Api.refreshContent();
+          done();
+        } catch (e) {
+          error.textContent = e.message || "Не получилось";
+          go.disabled = false;
+        }
+      }, { kind: "text" });
+      return {
+        title: "Новый учебный год",
+        body: [
+          h("p", null, "Все ваши ученики перейдут в следующий класс, а 11-е классы станут выпускниками — им придёт поздравление."),
+          h("ul", { class: "year-moves" }, lines),
+          h("label", { class: "check-row" }, deadlines, h("span", null, "Убрать прошлогодние сроки сдачи у всех практик")),
+          h("label", { class: "check-row" }, chats, h("span", null, "Очистить чаты классов (личные сообщения останутся)")),
+          h("p", { class: "small err" }, "Отменить перевод нельзя."),
+          error,
+        ],
+        actions: [button("Отмена", close, { kind: "text" }), go],
+      };
+    });
+    return h("div", { class: "card stack mt-lg" },
+      h("div", { class: "card-title" }, "🎒 Новый учебный год"),
+      h("p", { class: "small muted" }, "В конце года переведите всех учеников в следующий класс одной кнопкой: 8А станет 9А, а 11-е классы — выпускниками."),
+      button("Перевести в следующий класс", open, { kind: "outline", cls: "btn-block" }));
   }
 
   function resetPassword(st) {

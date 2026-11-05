@@ -732,6 +732,11 @@
       return { students, submissions };
     },
 
+    /** Новый учебный год: все ученики учителя — в следующий класс, 11-е — в выпускники. */
+    newYear(clearDeadlines, clearClassChats) {
+      return guard(request("POST", "api/new-year", { body: { clearDeadlines: !!clearDeadlines, clearClassChats: !!clearClassChats } }));
+    },
+
     resetPassword(userId, password) {
       return guard(request("PATCH", `api/collections/users/records/${safeId(userId)}`, { body: { password, passwordConfirm: password } }));
     },
@@ -783,6 +788,14 @@
     if (classes.length) return classes.includes(group);
     const grade = gradeOf(group);
     return !grade || practice.grade === grade;
+  }
+
+  /** В какой класс ученик перейдёт в новом учебном году: «8А» → «9А», «11Б» → null (выпускник), «Кружок» → «Кружок». */
+  function nextGroup(group) {
+    const m = /^(\d{1,2})(.*)$/.exec(String(group || "").trim());
+    if (!m) return group;
+    const grade = parseInt(m[1], 10);
+    return grade >= 11 ? null : grade >= 1 ? String(grade + 1) + m[2] : group;
   }
 
   /** Время с сервера («2026-11-05 10:00:00.000Z») в миллисекундах; пусто или ошибка — 0. */
@@ -868,6 +881,7 @@
   }
 
   window.Content = {
+    nextGroup,
     timeOf,
     examLabel,
     examResultsText,
