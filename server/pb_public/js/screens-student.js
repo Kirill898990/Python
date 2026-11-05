@@ -913,6 +913,7 @@
           replace(resultBox, feedback("Сначала ответь хотя бы на одно задание.", "error"));
           return;
         }
+        if (last && !(await confirm("Сдать ещё раз?", "Работа уже у учителя. Если ты исправил ответы, учитель получит новую работу.", "Сдать ещё раз"))) return;
         sending = true;
         sendBtn.disabled = true;
         replace(sendBtn, h("span", { class: "spinner spinner-sm" }), h("span", null, "Отправляем…"));

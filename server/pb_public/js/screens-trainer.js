@@ -14,13 +14,15 @@
     { key: "molar", title: "⚖️ Молярная масса" },
     { key: "equation", title: "⚗️ Уравнения" },
     { key: "classes", title: "🗂️ Классы веществ" },
+    { key: "biology", title: "🧬 Биология" },
   ];
-  const KINDS = ["formula", "molar", "equation", "classes"];
+  const KINDS = ["formula", "molar", "equation", "classes", "biology"];
   const LABELS = {
     formula: "Составь формулу по валентности",
     molar: "Вычисли молярную массу",
     equation: "Расставь коэффициенты",
     classes: "Определи класс вещества",
+    biology: "Ответь на вопрос по биологии",
   };
 
   // Чтобы задания не повторялись подряд: последние показанные.
@@ -65,6 +67,15 @@
         const [text, coefficients] = pick(kind, D.equations);
         const eq = Chem.parseEquation(text);
         return { kind, type: "equation", text, eq, explain: Chem.prettyEquation(eq, coefficients) };
+      }
+      case "biology": {
+        // Первый вариант в данных — верный; показываем варианты в случайном порядке.
+        const [question, options, explain] = pick(kind, D.biology);
+        const order = options.map((o, i) => [Math.random(), i]).sort((a, b) => a[0] - b[0]).map((x) => x[1]);
+        return {
+          kind, type: "choice", text: question, options: order.map((i) => options[i]),
+          answer: String(order.indexOf(0) + 1), explain: `${options[0]}. ${explain}`,
+        };
       }
       default: {
         const [formula, cls] = pick("classes", D.classes);
@@ -124,7 +135,7 @@
       const r = Chem.checkTask(task, input());
       const kind = r.kind === "correct" ? "success" : r.kind === "hint" ? "warning" : "error";
       // Для массы и класса вещества сразу показываем, как получился ответ.
-      const message = r.kind === "correct" && (task.kind === "molar" || task.kind === "classes")
+      const message = r.kind === "correct" && (task.kind === "molar" || task.kind === "classes" || task.kind === "biology")
         ? "Верно! " + task.explain
         : r.message || (r.kind === "correct" ? "Верно!" : "Неверно");
       replace(result, feedback(message, kind));
