@@ -29,7 +29,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import ru.prostayahimiya.app.ui.components.openLink
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -73,14 +75,17 @@ fun HomeCourses(courses: List<Enrollment>, onOpenCourse: (String) -> Unit) {
         courses.forEach { en ->
             Card(
                 onClick = { onOpenCourse(en.id) },
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (en.isLive) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+                ),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(16.dp)) {
                     EmojiBadge(en.subjectEnum.emoji(), MaterialTheme.colorScheme.primary)
                     Column(Modifier.weight(1f).padding(start = 16.dp)) {
                         Text(en.heading, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onPrimaryContainer)
                         Text(
-                            "Личный курс" + (en.expand?.teacher?.let { " · учитель ${it.name}" } ?: ""),
+                            if (en.isLive) listOfNotNull("Личный курс", en.expand?.teacher?.let { "учитель ${it.name}" }, en.untilText.ifBlank { null }).joinToString(" · ")
+                            else "Курс закончился — продлить можно на сайте",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                         )
@@ -136,6 +141,7 @@ fun StudentCourseScreen(
 ) {
     val content by repository.content.collectAsState()
     val submissions by repository.mySubmissionsState.collectAsState()
+    val context = LocalContext.current
     val loader = rememberLoader(enrollmentId) {
         repository.refreshContent()
         repository.refreshMySubmissions()
@@ -159,6 +165,17 @@ fun StudentCourseScreen(
                         val en = state.value
                         val list = content.coursePractices(en.id).filter { it.published }
                         item { HomeCourses(listOf(en)) {} }
+                        if (!en.isLive) {
+                            item {
+                                EmptyBox("⏳", "Курс закончился. Продлите его в магазине beemei на сайте — задания и чат снова откроются.")
+                            }
+                            item {
+                                Button(onClick = { context.openLink(repository.shopProductUrl(en.product)) }, modifier = Modifier.fillMaxWidth()) {
+                                    Text("Продлить курс на сайте")
+                                }
+                            }
+                            return@LazyColumn
+                        }
                         item {
                             OutlinedButton(onClick = { onOpenChat(ChatRoom.course(en.id), "Чат с учителем курса") }, modifier = Modifier.fillMaxWidth()) {
                                 Text("💬 Чат с учителем")
@@ -210,7 +227,8 @@ fun TeacherCoursesTab(repository: Repository, onOpenCourse: (String) -> Unit, mo
                                 Column(Modifier.weight(1f).padding(start = 16.dp)) {
                                     Text(en.expand?.student?.name ?: "Ученик", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                                     Text(
-                                        "${en.exam} · ${en.subjectEnum.title} · куплен ${formatServerDate(en.created)}" + if (en.active) "" else " · отключён",
+                                        listOf(en.exam, en.subjectEnum.title, en.untilText.ifBlank { "без срока" }).joinToString(" · ") +
+                                            if (en.isLive) "" else " · курс закончился",
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
@@ -277,7 +295,8 @@ fun TeacherCourseScreen(
                                             listOfNotNull(
                                                 student?.let { "логин ${it.username}" },
                                                 student?.group?.takeIf { it.isNotBlank() }?.let { "$it класс" },
-                                                "куплен ${formatServerDate(en.created)}",
+                                                en.untilText.ifBlank { null },
+                                                "курс закончился".takeIf { !en.isLive },
                                             ).joinToString(" · "),
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,

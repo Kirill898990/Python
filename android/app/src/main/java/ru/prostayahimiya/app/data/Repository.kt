@@ -479,6 +479,10 @@ class Repository(private val context: Context) {
     /** Адрес страницы приложения на сайте, где можно скачать новую версию. */
     val appPageUrl: String get() = BuildConfig.SERVER_URL.trimEnd('/') + "/app/"
 
+    /** Страница курса в магазине beemei на сайте (купить и продлить курс можно только на сайте). */
+    fun shopProductUrl(productId: String): String =
+        BuildConfig.SERVER_URL.trimEnd('/') + if (productId.isBlank()) "/#/shop" else "/#/shop/product/$productId"
+
     suspend fun checkForUpdate() {
         if (installedFromRuStore()) return
         runCatching {

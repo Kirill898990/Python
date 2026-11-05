@@ -645,14 +645,23 @@
     productImage(p, thumb) {
       return p && p.image ? fileUrl({ collectionName: "products", id: p.id }, p.image, thumb) : "images/shop/course.svg";
     },
-    /** Корзина хранится в этом браузере: [{product, subject, exam}]. */
+    /** Данные продавца для оферты и контактов (видны всем). */
+    async shopInfo() {
+      const r = await request("GET", "api/collections/shop_info/records", { query: { perPage: 1 } });
+      return r.items[0] || {};
+    },
+    /**
+     * Корзина хранится в этом браузере: [{product, teacher, subject, exam, days}].
+     * Одна на браузер, чтобы собранная до входа корзина не пропала после входа.
+     */
     cart: {
-      key: () => "beemei_cart_" + (state.user ? state.user.id : "guest"),
+      key: () => "beemei_cart",
       get() { const v = storage.get(this.key(), []); return Array.isArray(v) ? v : []; },
       set(items) { storage.set(this.key(), items); emit("cart"); },
       add(item) {
-        const items = this.get().filter((x) => !(x.product === item.product && x.subject === item.subject && x.exam === item.exam));
-        this.set(items.concat(item));
+        // Тот же курс у того же учителя — один, новый срок заменяет старый.
+        const same = (x) => x.product === item.product && x.teacher === item.teacher && x.subject === item.subject && x.exam === item.exam;
+        this.set(this.get().filter((x) => !same(x)).concat(item));
       },
       remove(index) { const items = this.get(); items.splice(index, 1); this.set(items); },
       clear() { this.set([]); },

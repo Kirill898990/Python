@@ -94,7 +94,13 @@ fun HomeScreen(
     val user by repository.user.collectAsState()
     // Купленные курсы (магазин beemei на сайте): только после покупки на главной появляется «Подготовка».
     val courses by produceState(emptyList<Enrollment>(), user?.id) {
-        value = if (user?.isTeacher == false) runCatching { repository.enrollments().filter { it.active } }.getOrDefault(emptyList()) else emptyList()
+        // Закончившиеся курсы показываем ещё 30 дней — чтобы было видно, что их можно продлить.
+        val monthAgo = java.time.Instant.now().minusSeconds(30L * 24 * 3600)
+        value = if (user?.isTeacher == false) {
+            runCatching { repository.enrollments().filter { it.active && it.expiresInstant?.isAfter(monthAgo) == true } }.getOrDefault(emptyList())
+        } else {
+            emptyList()
+        }
     }
     val content by repository.content.collectAsState()
     val contentError by repository.contentError.collectAsState()

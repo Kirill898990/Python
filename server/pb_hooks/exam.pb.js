@@ -30,7 +30,8 @@ routerAdd("POST", "/api/exam/start", (e) => {
   if (practice.getString("enrollment")) {
     try {
       const en = e.app.findRecordById("enrollments", practice.getString("enrollment"))
-      course = en.getString("student") === auth.id && en.getBool("active")
+      const until = Date.parse(String(en.getString("expiresAt")).replace(" ", "T"))
+      course = en.getString("student") === auth.id && en.getBool("active") && until > Date.now()
     } catch (_) {}
   }
   const visible = practice.getBool("published") && (course || (!practice.getString("enrollment") && owner !== "" &&

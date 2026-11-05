@@ -32,23 +32,33 @@ routerAdd("POST", "/api/shop/checkout", (e) => {
       p = e.app.findRecordById("products", String((x && x.product) || "").replace(/[^a-z0-9]/gi, ""))
     } catch (_) {}
     if (!p || !p.getBool("active")) throw new BadRequestError("Одного из товаров больше нет в продаже. Обновите корзину.")
-    let allowedSubjects = []
-    let allowedExams = []
-    try { allowedSubjects = JSON.parse(p.getString("subjects") || "[]") || [] } catch (_) {}
-    try { allowedExams = JSON.parse(p.getString("exams") || "[]") || [] } catch (_) {}
+    const json = (field) => { try { return JSON.parse(p.getString(field) || "[]") || [] } catch (_) { return [] } }
+    const allowedSubjects = json("subjects")
+    const allowedExams = json("exams")
+    const plans = json("plans")
     const subject = String(x.subject || "")
     const exam = String(x.exam || "")
     if (allowedSubjects.length && allowedSubjects.indexOf(subject) < 0) throw new BadRequestError("Выберите предмет для курса")
     if (allowedExams.length && allowedExams.indexOf(exam) < 0) throw new BadRequestError("Выберите экзамен для курса")
-    const key = [p.id, subject, exam].join("|")
+    // Срок и цену берём из товара, а не из запроса.
+    const plan = plans.find((pl) => pl && pl.days === parseInt(x.days, 10))
+    if (plans.length && !plan) throw new BadRequestError("Выберите срок подписки")
+    const days = plan ? plan.days : 30
+    const price = plan ? Number(plan.price) : p.getFloat("price")
+    // Учитель: из списка учителей курса, а если список пуст — любой подтверждённый учитель.
+    const teacherId = String(x.teacher || "").replace(/[^a-z0-9]/gi, "")
+    const allowedTeachers = p.getStringSlice("teachers")
+    let teacher = null
+    try { teacher = e.app.findRecordById("users", teacherId) } catch (_) {}
+    if (!teacher || !teacher.getBool("isTeacher") || (allowedTeachers.length && allowedTeachers.indexOf(teacherId) < 0)) {
+      throw new BadRequestError("Выберите учителя")
+    }
+    const key = [p.id, subject, exam, teacherId].join("|")
     if (seen[key]) throw new BadRequestError("Один и тот же курс в корзине дважды")
     seen[key] = true
-    const owned = e.app.countRecords("enrollments",
-      $dbx.hashExp({ student: auth.id, product: p.id, subject, exam, active: true })) > 0
-    if (owned) throw new BadRequestError(`Курс «${p.getString("title")}» (${subjects[subject] || subject}, ${exam}) у вас уже есть`)
     items.push({
-      product: p.id, title: p.getString("title"), price: p.getFloat("price"),
-      subject, exam, teacher: p.getString("teacher"),
+      product: p.id, title: p.getString("title"), price, days,
+      subject, exam, teacher: teacherId, teacherName: teacher.getString("name"),
     })
   })
   const total = items.reduce((sum, it) => sum + it.price, 0)
@@ -65,7 +75,7 @@ routerAdd("POST", "/api/shop/checkout", (e) => {
   const site = (s.getString("siteUrl") || ("https://" + e.request.host)).replace(/\/+$/, "")
   const first = items[0]
   const description = (items.length === 1
-    ? `${first.title}: ${subjects[first.subject] || first.subject}, ${first.exam}`
+    ? `${first.title}: ${subjects[first.subject] || first.subject}, ${first.exam}, ${first.days} дн.`
     : `Заказ beemei: ${items.length} курса`).slice(0, 128)
   let r
   try {
@@ -102,7 +112,7 @@ routerAdd("GET", "/api/shop/orders/{id}", (e) => {
   try { items = JSON.parse(order.getString("items") || "[]") || [] } catch (_) {}
   return e.json(200, {
     id: order.id, status, total: order.getFloat("total"), created: order.getString("created"),
-    items: items.map((it) => ({ title: it.title, price: it.price, subject: it.subject, exam: it.exam })),
+    items: items.map((it) => ({ title: it.title, price: it.price, subject: it.subject, exam: it.exam, days: it.days, teacherName: it.teacherName })),
   })
 }, $apis.requireAuth("users"))
 

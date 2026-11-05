@@ -63,16 +63,27 @@ function fulfill(app, orderId) {
   const buyer = app.findRecordById("users", order.getString("buyer"))
   const enrollments = app.findCollectionByNameOrId("enrollments")
   const teachers = buyer.getStringSlice("courseTeachers")
+  const toTime = (v) => { const t = v ? Date.parse(String(v).replace(" ", "T")) : NaN; return isNaN(t) ? 0 : t }
   items.forEach((it) => {
-    const r = new Record(enrollments)
-    r.set("student", buyer.id)
-    r.set("teacher", it.teacher)
-    r.set("product", it.product)
+    // Тот же курс у того же учителя уже был — продлеваем: с конца текущего срока или с сегодняшнего дня.
+    let r = null
+    try {
+      r = app.findFirstRecordByFilter("enrollments", "student = {:s} && teacher = {:t} && product = {:p} && subject = {:sub} && exam = {:e}",
+        { s: buyer.id, t: it.teacher, p: it.product, sub: it.subject, e: it.exam })
+    } catch (_) {}
+    const from = Math.max(Date.now(), r ? toTime(r.getString("expiresAt")) : 0)
+    if (!r) {
+      r = new Record(enrollments)
+      r.set("student", buyer.id)
+      r.set("teacher", it.teacher)
+      r.set("product", it.product)
+      r.set("title", it.title)
+      r.set("subject", it.subject)
+      r.set("exam", it.exam)
+    }
     r.set("order", order.id)
-    r.set("title", it.title)
-    r.set("subject", it.subject)
-    r.set("exam", it.exam)
     r.set("active", true)
+    r.set("expiresAt", new Date(from + (it.days || 0) * 24 * 3600 * 1000).toISOString().replace("T", " "))
     app.save(r)
     if (teachers.indexOf(it.teacher) < 0) teachers.push(it.teacher)
   })

@@ -3,12 +3,16 @@
 // Магазин beemei и личные курсы подготовки к ОГЭ и ЕГЭ.
 //
 // shop_settings — ключи ЮKassa (shopId и секретный ключ). Заполняет только администратор в веб-панели.
-// products      — товары магазина: название, описание, цена, картинка, какой учитель ведёт курс,
-//                 какие предметы и экзамены можно выбрать. Добавляет и меняет только администратор.
+// products      — товары магазина: название, описание, картинка, сроки подписки с ценами (plans),
+//                 какие учителя ведут курс (пусто — любой подтверждённый), какие предметы и экзамены можно выбрать.
+//                 Добавляет и меняет только администратор.
+// shop_info     — данные продавца для оферты и контактов (ФИО, ИНН, почта, телефон, условия возврата).
+//                 Видны всем, меняет только администратор.
 // orders        — заказы: кто купил, что (с выбранным предметом и экзаменом), сумма и статус оплаты.
 //                 Создаёт и отмечает оплаченными только сервер (pb_hooks/shop.pb.js) по ответу ЮKassa.
-// enrollments   — купленные курсы: ученик, учитель, предмет, экзамен. По ним у ученика появляется
-//                 «Подготовка», а у учителя — «Мои курсы».
+// enrollments   — купленные курсы: ученик, учитель, предмет, экзамен и до какого времени открыт (expiresAt).
+//                 Пока срок не кончился, у ученика есть «Подготовка», а у учителя — ученик во вкладке «Курсы».
+//                 Повторная покупка того же курса у того же учителя продлевает срок.
 // practices.enrollment — практика для одного ученика курса (её видит только он).
 // messages kind = "course" — чат ученика курса с учителем.
 // users.courseTeachers — учителя курсов ученика: им видно имя ученика (для «Мои курсы» и работ).
@@ -37,7 +41,9 @@ migrate((app) => {
   const products = new Collection({ type: "base", name: "products" })
   products.fields.add(new TextField({ name: "title", required: true, max: 200 }))
   products.fields.add(new TextField({ name: "description", max: 5000 }))
+  // Самая низкая цена (для «от 2 000 ₽» на витрине). Цены по срокам — в plans: [{days, price}].
   products.fields.add(new NumberField({ name: "price", required: true, min: 1 }))
+  products.fields.add(new JSONField({ name: "plans", maxSize: 2000 }))
   products.fields.add(new NumberField({ name: "oldPrice", min: 0 }))
   products.fields.add(new FileField({
     name: "image", maxSelect: 1, maxSize: 5 * 1024 * 1024,
@@ -45,7 +51,7 @@ migrate((app) => {
   }))
   products.fields.add(new TextField({ name: "badge", max: 30 }))
   products.fields.add(new TextField({ name: "category", max: 50 }))
-  products.fields.add(new RelationField({ name: "teacher", required: true, maxSelect: 1, collectionId: users.id }))
+  products.fields.add(new RelationField({ name: "teachers", maxSelect: 50, collectionId: users.id }))
   products.fields.add(new JSONField({ name: "subjects", maxSize: 500 }))
   products.fields.add(new JSONField({ name: "exams", maxSize: 500 }))
   products.fields.add(new BoolField({ name: "active" }))
@@ -59,6 +65,21 @@ migrate((app) => {
   products.updateRule = null
   products.deleteRule = null
   app.save(products)
+
+  const info = new Collection({ type: "base", name: "shop_info" })
+  info.fields.add(new TextField({ name: "sellerName", max: 200 }))
+  info.fields.add(new TextField({ name: "inn", max: 20 }))
+  info.fields.add(new TextField({ name: "email", max: 200 }))
+  info.fields.add(new TextField({ name: "phone", max: 50 }))
+  info.fields.add(new TextField({ name: "address", max: 300 }))
+  info.fields.add(new TextField({ name: "refundPolicy", max: 5000 }))
+  info.fields.add(new AutodateField({ name: "updated", onCreate: true, onUpdate: true }))
+  info.listRule = ""
+  info.viewRule = ""
+  info.createRule = null
+  info.updateRule = null
+  info.deleteRule = null
+  app.save(info)
 
   const orders = new Collection({ type: "base", name: "orders" })
   orders.fields.add(new RelationField({ name: "buyer", required: true, maxSelect: 1, collectionId: users.id }))
@@ -89,6 +110,7 @@ migrate((app) => {
   enrollments.fields.add(new TextField({ name: "subject", max: 20 }))
   enrollments.fields.add(new TextField({ name: "exam", max: 20 }))
   enrollments.fields.add(new BoolField({ name: "active" }))
+  enrollments.fields.add(new DateField({ name: "expiresAt" }))
   enrollments.fields.add(new AutodateField({ name: "created", onCreate: true }))
   enrollments.addIndex("idx_enrollments_student", false, "student", "")
   enrollments.addIndex("idx_enrollments_teacher", false, "teacher", "")
@@ -110,7 +132,7 @@ migrate((app) => {
   // Практики для одного ученика курса: обычные ученики учителя их не видят.
   practices.fields.add(new RelationField({ name: "enrollment", maxSelect: 1, collectionId: enrollments.id }))
   practices.addIndex("idx_practices_enrollment", false, "enrollment", "")
-  const course = 'enrollment != "" && enrollment.student = @request.auth.id && enrollment.active = true'
+  const course = 'enrollment != "" && enrollment.student = @request.auth.id && enrollment.active = true && enrollment.expiresAt > @now'
   practices.listRule = `${SIGNED_IN} && (owner = @request.auth.id ||` +
     ` (published = true && enrollment = "" && owner = @request.auth.teacher && owner != "") || (published = true && ${course}))`
   practices.viewRule = practices.listRule
@@ -122,7 +144,8 @@ migrate((app) => {
   const tasks = app.findCollectionByNameOrId("tasks")
   tasks.listRule = `${SIGNED_IN} && (practice.owner = @request.auth.id ||` +
     ' (practice.published = true && practice.exam = false && practice.enrollment = "" && practice.owner = @request.auth.teacher && practice.owner != "") ||' +
-    ' (practice.published = true && practice.exam = false && practice.enrollment != "" && practice.enrollment.student = @request.auth.id && practice.enrollment.active = true))'
+    ' (practice.published = true && practice.exam = false && practice.enrollment != "" && practice.enrollment.student = @request.auth.id' +
+    " && practice.enrollment.active = true && practice.enrollment.expiresAt > @now))"
   tasks.viewRule = tasks.listRule
   app.save(tasks)
 
@@ -148,14 +171,14 @@ migrate((app) => {
   messages.viewRule = messages.listRule
   messages.createRule = `(${messages.createRule}) || (${SIGNED_IN}` +
     " && author = @request.auth.id && authorName = @request.auth.name && fromTeacher = @request.auth.isTeacher" +
-    ' && kind = "course" && group = "" && student = "" && enrollment != "" && enrollment.active = true' +
+    ' && kind = "course" && group = "" && student = "" && enrollment != "" && enrollment.active = true && enrollment.expiresAt > @now' +
     " && (enrollment.student = @request.auth.id || enrollment.teacher = @request.auth.id)" +
     ' && (teacher = "" || teacher = enrollment.teacher))'
   app.save(messages)
 
-  // Первый товар — личный курс подготовки у первого учителя. Цену, текст и картинку можно поменять в веб-панели.
-  const teachers = app.findRecordsByFilter("users", "isTeacher = true", "created,id", 1, 0)
-  if (teachers.length) {
+  // Первый товар — личный онлайн-курс. Учителя выбирает покупатель (любой подтверждённый учитель).
+  // Цены, текст и картинку можно поменять в веб-панели.
+  {
     const p = new Record(products)
     p.set("title", "Личный онлайн-курс подготовки к ОГЭ и ЕГЭ")
     p.set("description", [
@@ -167,18 +190,21 @@ migrate((app) => {
       "• личный чат с учителем для вопросов;",
       "• разбор ошибок и план подготовки.",
       "",
-      "Как начать: выберите предмет и экзамен и оплатите курс. Сразу после оплаты в приложении и на сайте появится раздел «Подготовка».",
+      "Как начать: выберите учителя, предмет, экзамен и срок и оплатите курс. Сразу после оплаты в приложении и на сайте",
+      "появится раздел «Подготовка». Когда срок закончится, курс можно продлить.",
     ].join("\n"))
     p.set("price", 2000)
+    p.set("plans", [{ days: 2, price: 2000 }, { days: 7, price: 7000 }, { days: 14, price: 14000 }, { days: 30, price: 30000 }])
     p.set("badge", "Онлайн-курс")
-    p.set("category", "Подготовка к экзаменам")
-    p.set("teacher", teachers[0].id)
+    p.set("category", "Подготовка к ОГЭ и ЕГЭ")
     p.set("subjects", ["chemistry", "biology"])
     p.set("exams", ["ОГЭ", "ЕГЭ"])
     p.set("active", true)
     p.set("position", 1)
     app.save(p)
   }
+  // Данные продавца — заполните в веб-панели (Collections → shop_info), без них ЮKassa не подключит сайт.
+  app.save(new Record(info))
 }, (app) => {
   const messages = app.findCollectionByNameOrId("messages")
   messages.fields.removeByName("enrollment")
@@ -190,7 +216,7 @@ migrate((app) => {
   const users = app.findCollectionByNameOrId("users")
   users.fields.removeByName("courseTeachers")
   app.save(users)
-  for (const name of ["enrollments", "orders", "products", "shop_settings"]) {
+  for (const name of ["enrollments", "orders", "shop_info", "products", "shop_settings"]) {
     try {
       app.delete(app.findCollectionByNameOrId(name))
     } catch (_) {}

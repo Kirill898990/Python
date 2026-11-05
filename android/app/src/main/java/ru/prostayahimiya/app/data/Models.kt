@@ -417,10 +417,19 @@ data class Enrollment(
     val subject: String = "",
     val exam: String = "",
     val active: Boolean = false,
+    /** До какого времени открыт курс (время сервера). */
+    val expiresAt: String = "",
+    val product: String = "",
     val created: String = "",
     val expand: EnrollmentExpand? = null,
 ) {
     val subjectEnum: Subject get() = Subject.fromKey(subject)
+    val expiresInstant: Instant? get() = parseServerInstant(expiresAt)
+    /** Курс открыт: оплачен и срок ещё не кончился. */
+    val isLive: Boolean get() = active && expiresInstant?.isAfter(Instant.now()) == true
+    /** «до 12 ноября» или «закончился 12 ноября». */
+    val untilText: String
+        get() = expiresInstant?.let { (if (it.isAfter(Instant.now())) "до " else "закончился ") + formatDay(it) }.orEmpty()
     /** «Подготовка к ЕГЭ · Биология» */
     val heading: String get() = "Подготовка к $exam · ${subjectEnum.title}"
     /** ОГЭ сдают в 9 классе, ЕГЭ — в 11. */

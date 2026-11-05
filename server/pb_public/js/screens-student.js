@@ -167,6 +167,7 @@
       h("p", { class: "muted small" }, Content.AUTHOR),
       formBox,
       h("div", { class: "auth-install" }, installSection()),
+      h("a", { class: "btn btn-outline btn-block mt", href: "#/shop" }, h("span", null, "🐝 Магазин онлайн-курсов beemei")),
       h("a", { class: "policy-link", href: "privacy.html" }, "Политика конфиденциальности"));
   }
 
