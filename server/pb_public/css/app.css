@@ -783,3 +783,12 @@ p { margin: 0; }
 .exam-timer.warn { background: var(--error-container); color: var(--on-error-container); }
 .exam-rules { margin: 12px 0 0; padding-left: 0; list-style: none; display: grid; gap: 8px; }
 .exam-rules li { line-height: 1.4; }
+
+/* ----- Тренажёр ----- */
+.trainer-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.trainer-stats > div {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 10px 6px; border-radius: 16px; background: var(--card); border: 1px solid var(--outline-variant);
+}
+.trainer-stats b { font-size: 22px; color: var(--primary); }
+.trainer-stats span { font-size: 12px; color: var(--muted); text-align: center; }

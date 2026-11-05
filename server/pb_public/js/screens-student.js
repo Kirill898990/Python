@@ -267,6 +267,7 @@
       menuCard("#/subject/chemistry", "⚗️", "c-chemistry", "Практики по химии", `${Content.gradeRange("chemistry")} класс`),
       menuCard("#/theory", "📚", "c-secondary", "Теоретическая часть", "Учебники ЯКласса по классам"),
       menuCard("#/reference", "🧪", "c-chemistry", "Справочник", "Таблица Менделеева и таблица растворимости"),
+      menuCard("#/trainer", "🎯", "c-secondary", "Тренажёр", "Бесконечные задания с проверкой: формулы, массы, уравнения"),
       h("img", { class: "banner banner-people", src: "images/scientists.jpg", alt: "" }),
       h("div", { class: "footer" },
         h("div", { class: "card-title" }, Content.AUTHOR),

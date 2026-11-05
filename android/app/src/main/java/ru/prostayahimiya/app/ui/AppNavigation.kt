@@ -35,6 +35,7 @@ import ru.prostayahimiya.app.ui.practice.PracticeScreen
 import ru.prostayahimiya.app.ui.reference.ReferenceScreen
 import ru.prostayahimiya.app.ui.subject.SubjectScreen
 import ru.prostayahimiya.app.ui.theory.TheoryScreen
+import ru.prostayahimiya.app.ui.trainer.TrainerScreen
 
 /** Экраны приложения и переходы между ними. */
 @Composable
@@ -79,6 +80,7 @@ fun AppNavigation(repository: Repository) {
                 onOpenChat = { nav.navigate("chats") },
                 onOpenPractice = { id -> nav.navigate("practice/$id") },
                 onOpenReference = { nav.navigate("reference") },
+                onOpenTrainer = { nav.navigate("trainer") },
             )
         }
         composable("chats") {
@@ -122,6 +124,13 @@ fun AppNavigation(repository: Repository) {
         }
         composable("reference") {
             ReferenceScreen(onBack = dropUnlessResumed { nav.popBackStack() })
+        }
+        composable("trainer") {
+            TrainerScreen(
+                repository = repository,
+                onBack = dropUnlessResumed { nav.popBackStack() },
+                onOpenReference = { nav.navigate("reference") },
+            )
         }
         composable("theory") {
             TheoryScreen(onBack = dropUnlessResumed { nav.popBackStack() })

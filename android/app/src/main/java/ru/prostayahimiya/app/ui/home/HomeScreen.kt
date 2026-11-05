@@ -83,6 +83,7 @@ fun HomeScreen(
     onOpenChat: () -> Unit,
     onOpenPractice: (String) -> Unit,
     onOpenReference: () -> Unit,
+    onOpenTrainer: () -> Unit = {},
 ) {
     val user by repository.user.collectAsState()
     val content by repository.content.collectAsState()
@@ -249,6 +250,15 @@ fun HomeScreen(
                         title = "Справочник",
                         subtitle = "Таблица Менделеева и таблица растворимости",
                         onClick = onOpenReference,
+                    )
+                }
+                item {
+                    MenuCard(
+                        emoji = "🎯",
+                        badgeColor = MaterialTheme.colorScheme.secondaryContainer,
+                        title = "Тренажёр",
+                        subtitle = "Бесконечные задания с проверкой: формулы, массы, уравнения",
+                        onClick = onOpenTrainer,
                     )
                 }
                 item {
