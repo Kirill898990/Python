@@ -45,6 +45,9 @@ class PocketBase(private val baseUrl: String, private val token: () -> String?) 
         }
         .build()
 
+    /** Для долгих запросов (задания от нейросети думаются до двух минут). */
+    private val slowClient: OkHttpClient = client.newBuilder().readTimeout(150, TimeUnit.SECONDS).build()
+
     /** Загрузить файл в поле записи (картинку к заданию). */
     suspend fun <T> upload(
         method: String,
@@ -87,7 +90,8 @@ class PocketBase(private val baseUrl: String, private val token: () -> String?) 
         url: HttpUrl,
         serializer: KSerializer<T>,
         body: JsonObject? = null,
-    ): T = json.decodeFromString(serializer, raw(method, url, body))
+        slow: Boolean = false,
+    ): T = json.decodeFromString(serializer, raw(method, url, body, slow))
 
     suspend fun send(method: String, url: HttpUrl, body: JsonObject? = null) {
         raw(method, url, body)
@@ -119,16 +123,16 @@ class PocketBase(private val baseUrl: String, private val token: () -> String?) 
         return result
     }
 
-    private suspend fun raw(method: String, url: HttpUrl, body: JsonObject?): String {
+    private suspend fun raw(method: String, url: HttpUrl, body: JsonObject?, slow: Boolean = false): String {
         val requestBody = when {
             body != null -> json.encodeToString(JsonObject.serializer(), body)
             method == "POST" || method == "PATCH" -> "{}"
             else -> null
         }?.toRequestBody("application/json; charset=utf-8".toMediaType())
-        return execute(method, url, requestBody)
+        return execute(method, url, requestBody, slow)
     }
 
-    private suspend fun execute(method: String, url: HttpUrl, requestBody: RequestBody?): String = withContext(Dispatchers.IO) {
+    private suspend fun execute(method: String, url: HttpUrl, requestBody: RequestBody?, slow: Boolean = false): String = withContext(Dispatchers.IO) {
         val request = Request.Builder()
             .url(url)
             .method(method, requestBody)
@@ -136,7 +140,7 @@ class PocketBase(private val baseUrl: String, private val token: () -> String?) 
             .build()
 
         val response = try {
-            client.newCall(request).execute()
+            (if (slow) slowClient else client).newCall(request).execute()
         } catch (e: IOException) {
             // В отладочной сборке показываем техническую причину, чтобы было проще разобраться.
             val details = if (BuildConfig.DEBUG) "\n\n[$baseUrl] ${e.javaClass.simpleName}: ${e.message}" else ""
@@ -160,9 +164,14 @@ class PocketBase(private val baseUrl: String, private val token: () -> String?) 
             // Ответ не в формате PocketBase — покажем общее сообщение.
         }
         val isLogin = url.encodedPath.endsWith("auth-with-password")
+        // Наши сообщения с сервера написаны по-русски («Срок контрольной прошёл…») — их показываем как есть.
+        // Стандартные сообщения PocketBase (по-английски) заменяем на понятные ниже.
+        val serverMessage = runCatching { json.parseToJsonElement(text).jsonObject["message"]?.jsonPrimitive?.content }.getOrNull()
+            ?.takeIf { m -> m.any { it in 'а'..'я' || it in 'А'..'Я' || it == 'ё' || it == 'Ё' } }
         val message = when {
             isLogin && status == 400 -> "Неверный логин или пароль"
             fields.isNotEmpty() -> fields.values.first()
+            serverMessage != null -> serverMessage
             status == 401 -> "Нужно войти в аккаунт заново"
             status == 403 -> "Нет доступа"
             status == 404 -> "Не найдено. Возможно, запись уже удалили."

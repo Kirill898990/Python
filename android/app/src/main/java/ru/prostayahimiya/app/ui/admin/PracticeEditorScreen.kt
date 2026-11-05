@@ -117,6 +117,8 @@ fun PracticeEditorScreen(practiceId: String, repository: Repository, onBack: () 
     var published by rememberSaveable(currentId) { mutableStateOf(original.published) }
     var classes by rememberSaveable(currentId) { mutableStateOf(original.classes) }
     var deadline by rememberSaveable(currentId) { mutableStateOf(original.deadline) }
+    var exam by rememberSaveable(currentId) { mutableStateOf(original.exam) }
+    var timeLimit by rememberSaveable(currentId) { mutableStateOf(if (original.id.isEmpty()) "40" else original.timeLimit.takeIf { it > 0 }?.toString().orEmpty()) }
     var pickingDate by remember { mutableStateOf(false) }
     // Классы, которые можно выбрать: из списка учеников и уже выбранные.
     var knownClasses by remember { mutableStateOf(original.classes) }
@@ -130,12 +132,14 @@ fun PracticeEditorScreen(practiceId: String, repository: Repository, onBack: () 
     var editing by remember { mutableStateOf<Task?>(null) }
     var deletingTask by remember { mutableStateOf<Task?>(null) }
     var deletingPractice by remember { mutableStateOf(false) }
+    var generating by remember { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val tasks = if (currentId.isEmpty()) emptyList() else content.tasksOf(currentId)
     val changed = currentId.isEmpty() || title != original.title || subject != original.subject ||
         grade != original.grade || published != original.published || classes != original.classes ||
-        parseServerInstant(deadline) != original.deadlineInstant
+        parseServerInstant(deadline) != original.deadlineInstant ||
+        exam != original.exam || (exam && (timeLimit.toIntOrNull() ?: 0) != original.timeLimit)
 
     /** Выполняет действие с сервером и показывает ошибку, если что-то пошло не так. */
     fun serverAction(success: String? = null, action: suspend () -> Unit) {
@@ -158,6 +162,7 @@ fun PracticeEditorScreen(practiceId: String, repository: Repository, onBack: () 
             original.copy(
                 id = currentId, title = title, subject = subject, grade = grade, published = published,
                 classes = classes, deadline = deadline,
+                exam = exam, timeLimit = if (exam) (timeLimit.toIntOrNull() ?: 0).coerceIn(0, 600) else 0,
             ),
         )
         currentId = saved.id
@@ -241,6 +246,34 @@ fun PracticeEditorScreen(practiceId: String, repository: Repository, onBack: () 
                         }
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
+                                Text("Контрольная работа", style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    "Без мгновенной проверки, с таймером",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Switch(checked = exam, onCheckedChange = { exam = it })
+                        }
+                        if (exam) {
+                            OutlinedTextField(
+                                value = timeLimit,
+                                onValueChange = { v -> timeLimit = v.filter(Char::isDigit).take(3) },
+                                label = { Text("Время на работу, минут") },
+                                supportingText = { Text("Пусто или 0 — без ограничения") },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Text(
+                                "Ответы не проверяются сразу, подсказок нет, сдать можно один раз. Задания ученик увидит только после " +
+                                    "«Начать». Результаты — после срока сдачи (если срока нет — когда вы поставите оценку).",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
                                 Text("Опубликовано", style = MaterialTheme.typography.bodyLarge)
                                 Text(
                                     if (published) "Ученики видят эту практику" else "Черновик: ученики не видят",
@@ -302,6 +335,9 @@ fun PracticeEditorScreen(practiceId: String, repository: Repository, onBack: () 
                             }) { Text("+ ${type.shortTitle()}") }
                         }
                     }
+                    Button(onClick = { generating = true }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                        Text("✨ Сгенерировать нейросетью")
+                    }
                 }
                 item {
                     OutlinedButton(
@@ -312,6 +348,19 @@ fun PracticeEditorScreen(practiceId: String, repository: Repository, onBack: () 
                 }
             }
         }
+    }
+
+    if (generating && currentId.isNotEmpty()) {
+        GenerateTasksDialog(
+            practiceId = currentId,
+            nextPosition = (tasks.maxOfOrNull { it.position } ?: 0) + 1,
+            repository = repository,
+            onDismiss = { generating = false },
+            onAdded = { n ->
+                generating = false
+                scope.launch { snackbar.showSnackbar("Добавлено заданий: $n") }
+            },
+        )
     }
 
     editing?.let { task ->
@@ -387,7 +436,7 @@ fun PracticeEditorScreen(practiceId: String, repository: Repository, onBack: () 
     }
 }
 
-private fun TaskType.shortTitle() = when (this) {
+internal fun TaskType.shortTitle() = when (this) {
     TaskType.QUESTION -> "Вопрос"
     TaskType.CHOICE -> "Тест"
     TaskType.FILL -> "Пропуски"
@@ -396,7 +445,7 @@ private fun TaskType.shortTitle() = when (this) {
     TaskType.EQUATION -> "Уравнение"
 }
 
-private fun TaskType.emoji() = when (this) {
+internal fun TaskType.emoji() = when (this) {
     TaskType.QUESTION -> "❓"
     TaskType.CHOICE -> "☑️"
     TaskType.FILL -> "✏️"
@@ -413,7 +462,7 @@ private sealed interface ImageChange {
 }
 
 /** Правильный ответ задания, как его показать учителю в списке. */
-private fun Task.answerSummary(): String? = when (taskType) {
+internal fun Task.answerSummary(): String? = when (taskType) {
     TaskType.QUESTION -> null
     TaskType.FORMULA -> Chem.pretty(answer)
     TaskType.EQUATION -> equation?.pretty(coefficients) ?: answer

@@ -1,6 +1,16 @@
 package ru.prostayahimiya.app.ui.practice
 
 import androidx.compose.foundation.BorderStroke
+import kotlin.coroutines.cancellation.CancellationException
+import ru.prostayahimiya.app.data.Submission
+import ru.prostayahimiya.app.data.Practice
+import ru.prostayahimiya.app.data.ExamSession
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -125,6 +135,10 @@ private fun TaskType.sectionCaption() = when (this) {
     TaskType.EQUATION -> "Впиши коэффициенты в клеточки. Пустая клеточка означает коэффициент 1."
 }
 
+/** В контрольной нет «Проверить», а сдаётся всё одной кнопкой. */
+private fun String.examCaption(exam: Boolean) =
+    if (!exam) this else replace(" и нажми «Проверить»", "").replace(", а в конце сдай работу учителю", "")
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PracticeScreen(
@@ -133,15 +147,33 @@ fun PracticeScreen(
     onBack: () -> Unit,
     onOpenCabinet: () -> Unit,
     onOpenReference: () -> Unit,
+    onOpenSubmission: (String) -> Unit = {},
 ) {
     val content by repository.content.collectAsState()
     val user by repository.user.collectAsState()
+    val sessions by repository.examSessions.collectAsState()
+    val mySubmissions by repository.mySubmissionsState.collectAsState()
     val practice = content.practice(practiceId)
     if (practice == null) {
         Scaffold(topBar = { BackTopBar("Практика", onBack) }) { padding ->
             EmptyBox("🗂️", "Эта практика больше недоступна", Modifier.padding(padding))
         }
         return
+    }
+    // Контрольная: ответы сразу не проверяются, сдать можно один раз, задания — только после «Начать».
+    val exam = practice.exam
+    val isStudent = user?.isTeacher == false
+    val session = if (exam && isStudent) sessions[practice.id] else null
+    if (exam && isStudent) {
+        val last = mySubmissions.firstOrNull { it.practice == practice.id }
+        if (last != null) {
+            ExamDoneScreen(practice, last, repository, onBack, onOpenSubmission)
+            return
+        }
+        if (session == null) {
+            ExamIntroScreen(practice, repository, onBack, resume = practice.id in content.examStarts)
+            return
+        }
     }
     // Варианты: ученику — его вариант, учителю — тот, который он выбрал для просмотра.
     val variantCount = content.variantCount(practice.id)
@@ -168,24 +200,27 @@ fun PracticeScreen(
         Scaffold(
             topBar = {
                 BackTopBar(
-                    title = "${practice.subjectEnum.title} · ${practice.grade} класс",
+                    title = if (session != null) "Контрольная" else "${practice.subjectEnum.title} · ${practice.grade} класс",
                     onBack = onBack,
                     scrollBehavior = scrollBehavior,
                 ) {
+                    if (session?.endsAt != null) ExamTimer(session) { vm.submitExam() }
                     IconButton(onClick = onOpenReference) {
                         Icon(painterResource(R.drawable.ic_book), contentDescription = "Справочник")
                     }
-                    IconButton(onClick = { menuOpen = true }) {
-                        Icon(painterResource(R.drawable.ic_more_vert), contentDescription = "Ещё")
-                    }
-                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        DropdownMenuItem(
-                            text = { Text("Начать заново") },
-                            onClick = {
-                                menuOpen = false
-                                confirmReset = true
-                            },
-                        )
+                    if (!exam) {
+                        IconButton(onClick = { menuOpen = true }) {
+                            Icon(painterResource(R.drawable.ic_more_vert), contentDescription = "Ещё")
+                        }
+                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Начать заново") },
+                                onClick = {
+                                    menuOpen = false
+                                    confirmReset = true
+                                },
+                            )
+                        }
                     }
                 }
             },
@@ -204,6 +239,18 @@ fun PracticeScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 item { ProgressHeader(practice.title, vm.filledCount, vm.totalCount) }
+                if (exam && !isStudent) {
+                    item {
+                        TaskCard("📝 ${practice.examLabel}") {
+                            Text(
+                                "Ученики увидят задания только после «Начать». Ответы сразу не проверяются, сдать можно один раз. " +
+                                    practice.examResultsText + ".",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
                 if (variantCount > 0) {
                     item {
                         if (currentUser?.isTeacher == true) {
@@ -249,13 +296,13 @@ fun PracticeScreen(
 
                 vm.sections.forEachIndexed { sectionIndex, (type, list) ->
                     val number = sectionIndex + 1
-                    item(key = "section-${type.key}") { SectionHeader("$number. ${type.sectionTitle()}", type.sectionCaption()) }
+                    item(key = "section-${type.key}") { SectionHeader("$number. ${type.sectionTitle()}", type.sectionCaption().examCaption(exam)) }
                     list.forEachIndexed { i, task ->
                         item(key = task.id) {
                             if (type == TaskType.QUESTION) {
                                 QuestionCard("Вопрос ${i + 1}", task, vm, repository, protect)
                             } else {
-                                CheckableCard("Задание $number.${i + 1}", task, task.id in solved, vm, repository) {
+                                CheckableCard("Задание $number.${i + 1}", task, task.id in solved && !exam, vm, repository, exam) {
                                     when (type) {
                                         TaskType.CHOICE -> ChoiceContent(task, vm)
                                         TaskType.FILL -> FillContent(task, vm, protect)
@@ -279,6 +326,8 @@ fun PracticeScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(vertical = 8.dp),
                             )
+                        } else if (exam) {
+                            ExamSubmitCard(vm)
                         } else {
                             SubmitCard(vm, onOpenCabinet)
                         }
@@ -419,13 +468,17 @@ private fun CheckableCard(
     solved: Boolean,
     vm: PracticeViewModel,
     repository: Repository,
+    exam: Boolean,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     TaskCard(label, solved) {
         TaskImage(task, repository)
         content()
-        CheckButton(checking = vm.checking[task.id] == true) { vm.check(task) }
-        vm.results[task.id]?.let { ResultFeedback(it) }
+        // В контрольной кнопки «Проверить» нет: ответы проверятся после сдачи.
+        if (!exam) {
+            CheckButton(checking = vm.checking[task.id] == true) { vm.check(task) }
+            vm.results[task.id]?.let { ResultFeedback(it) }
+        }
     }
 }
 
@@ -823,6 +876,238 @@ private fun SubmitCard(vm: PracticeViewModel, onOpenCabinet: () -> Unit) {
                 TextButton(onClick = onOpenCabinet) { Text("Открыть личный кабинет") }
             }
             else -> Unit
+        }
+    }
+}
+
+/** Сдача контрольной: один раз, с подтверждением. */
+@Composable
+private fun ExamSubmitCard(vm: PracticeViewModel) {
+    var confirm by rememberSaveable { mutableStateOf(false) }
+    TaskCard("Сдать контрольную") {
+        Text(
+            "Проверить ответы до сдачи нельзя. Сдать можно один раз — потом ответы уже не изменить.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 12.dp),
+        )
+        Button(
+            onClick = { confirm = true },
+            enabled = vm.sendState !is SendState.Sending,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            if (vm.sendState is SendState.Sending) {
+                CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(18.dp), color = MaterialTheme.colorScheme.onPrimary)
+                Spacer(Modifier.width(10.dp))
+                Text("Отправляем…")
+            } else {
+                Icon(painterResource(R.drawable.ic_send), contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(10.dp))
+                Text("Сдать контрольную")
+            }
+        }
+        (vm.sendState as? SendState.Error)?.let { Feedback(it.message, FeedbackKind.Error) }
+    }
+    if (confirm) {
+        AlertDialog(
+            onDismissRequest = { confirm = false },
+            title = { Text("Сдать контрольную?") },
+            text = { Text("Изменить ответы после этого будет нельзя.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirm = false
+                    vm.submitExam()
+                }) { Text("Сдать") }
+            },
+            dismissButton = { TextButton(onClick = { confirm = false }) { Text("Отмена") } },
+        )
+    }
+}
+
+/** Сколько осталось времени. Когда оно кончается, работа отправляется сама (и повторяет попытку без интернета). */
+@Composable
+private fun ExamTimer(session: ExamSession, onTimeUp: () -> Unit) {
+    val now by produceState(System.currentTimeMillis()) {
+        while (true) {
+            value = System.currentTimeMillis()
+            delay(1000)
+        }
+    }
+    val left = session.leftMillis(now) ?: return
+    val timeUp = left <= 0
+    val currentOnTimeUp by rememberUpdatedState(onTimeUp)
+    LaunchedEffect(timeUp) {
+        while (timeUp) {
+            currentOnTimeUp()
+            delay(10_000)
+        }
+    }
+    val scheme = MaterialTheme.colorScheme
+    val warn = left < 5 * 60_000
+    val seconds = (left.coerceAtLeast(0) + 999) / 1000
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = if (warn) scheme.errorContainer else scheme.primaryContainer,
+        modifier = Modifier.semantics { contentDescription = "Осталось времени" },
+    ) {
+        Text(
+            if (timeUp) "⏱ 0:00" else "⏱ %d:%02d".format(seconds / 60, seconds % 60),
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+            color = if (warn) scheme.onErrorContainer else scheme.onPrimaryContainer,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+        )
+    }
+}
+
+/** Правила контрольной и «Начать». Если контрольная уже начата (resume) — сразу продолжаем её. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ExamIntroScreen(practice: Practice, repository: Repository, onBack: () -> Unit, resume: Boolean) {
+    val scope = rememberCoroutineScope()
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var confirm by rememberSaveable { mutableStateOf(false) }
+    fun start(begin: Boolean) {
+        if (busy) return
+        busy = true
+        error = null
+        scope.launch {
+            try {
+                repository.startExam(practice, begin)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                error = e.message ?: "Не получилось начать"
+            }
+            busy = false
+        }
+    }
+    LaunchedEffect(practice.id, resume) { if (resume) start(false) }
+    val deadline = practice.deadlineInstant
+    val closed = deadline != null && deadline.isBefore(java.time.Instant.now())
+    val scheme = MaterialTheme.colorScheme
+
+    Scaffold(
+        topBar = { BackTopBar("${practice.subjectEnum.title} · ${practice.grade} класс", onBack) },
+        containerColor = scheme.background,
+    ) { padding ->
+        Column(
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
+        ) {
+            Text(practice.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            if (resume && error == null) {
+                Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                return@Column
+            }
+            TaskCard("Контрольная работа") {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ExamRule(if (practice.timeLimit > 0) "⏱ На работу ${practice.timeLimit} мин. Таймер пойдёт, как только ты нажмёшь «Начать»." else "⏱ Время не ограничено.")
+                    ExamRule("🔒 Ответы сразу не проверяются, подсказок нет.")
+                    ExamRule("📤 Сдать работу можно только один раз.")
+                    ExamRule("📊 ${practice.examResultsText}.")
+                    if (deadline != null) {
+                        ExamRule(
+                            if (closed) "⛔ Срок прошёл ${formatDay(deadline)}. Если нужно написать позже — попроси учителя."
+                            else "📅 Начать можно до ${formatDay(deadline)}.",
+                            error = closed,
+                        )
+                    }
+                }
+                Button(
+                    onClick = { if (practice.timeLimit > 0) confirm = true else start(true) },
+                    enabled = !busy && !closed,
+                    modifier = Modifier.fillMaxWidth().padding(top = 16.dp).height(52.dp),
+                ) {
+                    if (busy) {
+                        CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(18.dp), color = scheme.onPrimary)
+                        Spacer(Modifier.width(10.dp))
+                        Text("Открываем…")
+                    } else {
+                        Icon(painterResource(R.drawable.ic_send), contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Text("Начать контрольную")
+                    }
+                }
+                error?.let { Feedback(it, FeedbackKind.Error) }
+            }
+        }
+    }
+    if (confirm) {
+        AlertDialog(
+            onDismissRequest = { confirm = false },
+            title = { Text("Начать контрольную?") },
+            text = { Text("Таймер на ${practice.timeLimit} мин пойдёт сразу, остановить его нельзя. Когда время закончится, работа отправится сама.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirm = false
+                    start(true)
+                }) { Text("Начать") }
+            },
+            dismissButton = { TextButton(onClick = { confirm = false }) { Text("Отмена") } },
+        )
+    }
+}
+
+@Composable
+private fun ExamRule(text: String, error: Boolean = false) {
+    Text(
+        text,
+        style = MaterialTheme.typography.bodyMedium,
+        fontWeight = if (error) FontWeight.SemiBold else FontWeight.Normal,
+        color = if (error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+    )
+}
+
+/** Контрольная сдана: оценка или когда будут результаты. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ExamDoneScreen(
+    practice: Practice,
+    submission: Submission,
+    repository: Repository,
+    onBack: () -> Unit,
+    onOpenSubmission: (String) -> Unit,
+) {
+    // Если учитель разрешил пересдать, работа пропадёт из списка — и снова появится «Начать».
+    LaunchedEffect(practice.id) { repository.refreshMySubmissions() }
+    val scheme = MaterialTheme.colorScheme
+    Scaffold(
+        topBar = { BackTopBar("${practice.subjectEnum.title} · ${practice.grade} класс", onBack) },
+        containerColor = scheme.background,
+    ) { padding ->
+        Column(
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
+        ) {
+            Text(practice.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            TaskCard("Контрольная") {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("✅ Контрольная сдана", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text("Сдано ${formatServerDate(submission.created)}", style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
+                        if (submission.overtime) {
+                            Text("⏰ После окончания времени", style = MaterialTheme.typography.labelMedium, color = scheme.error, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                    GradeBadge(submission.grade)
+                }
+                if (submission.comment.isNotBlank()) {
+                    Text("💬 ${submission.comment}", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 12.dp))
+                }
+                if (!submission.isGraded) {
+                    Text(
+                        if (submission.resultsHidden) practice.examResultsText else "Учитель ещё не поставил оценку",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = scheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 12.dp),
+                    )
+                }
+                TextButton(onClick = { onOpenSubmission(submission.id) }, modifier = Modifier.padding(top = 4.dp)) {
+                    Text("Посмотреть мою работу")
+                }
+            }
         }
     }
 }

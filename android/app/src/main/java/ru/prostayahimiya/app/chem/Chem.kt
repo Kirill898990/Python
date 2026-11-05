@@ -81,6 +81,9 @@ object Chem {
         return MolarResult.Ok(Math.round(total * 10) / 10.0)
     }
 
+    /** Атомная масса элемента, как в школьной таблице (для объяснения ответа в тренажёре). */
+    fun atomicMass(element: String): Double? = ATOMIC_MASS[element]
+
     /** 98.0 → «98», 36.5 → «36,5». */
     fun formatNumber(value: Double): String =
         if (value == Math.floor(value)) value.toLong().toString() else value.toString().replace('.', ',')

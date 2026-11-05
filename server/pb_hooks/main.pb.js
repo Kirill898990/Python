@@ -37,6 +37,13 @@ routerAdd("POST", "/api/check", (e) => {
     } catch (_) {
       return { task: id, kind: "error", message: "Задание не найдено. Обнови страницу." }
     }
+    if (!isTeacher) {
+      try {
+        if (e.app.findRecordById("practices", task.getString("practice")).getBool("exam")) {
+          return { task: id, kind: "error", message: "Это контрольная: ответы проверятся после сдачи" }
+        }
+      } catch (_) {}
+    }
     if (!e.app.canAccessRecord(task, info, tasks.viewRule)) {
       return { task: id, kind: "error", message: "Нет доступа к заданию" }
     }

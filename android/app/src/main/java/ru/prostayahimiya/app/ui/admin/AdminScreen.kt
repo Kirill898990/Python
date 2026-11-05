@@ -1,5 +1,9 @@
 package ru.prostayahimiya.app.ui.admin
 
+import androidx.compose.material3.OutlinedButton
+import ru.prostayahimiya.app.data.nextGroup
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.material3.Checkbox
 import ru.prostayahimiya.app.data.classesOf
 import ru.prostayahimiya.app.data.isLate
 import androidx.compose.foundation.layout.Arrangement
@@ -201,7 +205,7 @@ private fun PracticesTab(
                                 }
                             }
                             Text(
-                                "Заданий: $count",
+                                "Заданий: $count" + if (practice.exam) " · ${practice.examLabel.lowercase()}" else "",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -229,6 +233,7 @@ private fun StudentsTab(
 ) {
     val loader = rememberLoader(Unit) { repository.students() }
     var selected by remember { mutableStateOf<User?>(null) }
+    val scope = rememberCoroutineScope()
 
     PullToRefreshBox(isRefreshing = loader.refreshing && loader.state is Load.Ok, onRefresh = loader::reload, modifier = modifier) {
         LazyColumn(
@@ -244,36 +249,33 @@ private fun StudentsTab(
                     item { ClassCodesSection(repository, emptyList(), snackbar) }
                     item { EmptyBox("👥", "Пока никто из учеников не зарегистрировался") }
                 } else {
+                    val active = state.value.filter { !it.graduated }
+                    val graduates = state.value.filter { it.graduated }
                     item { SectionLabel("Коды классов") }
-                    item { ClassCodesSection(repository, classesOf(state.value), snackbar) }
+                    item { ClassCodesSection(repository, classesOf(active), snackbar) }
                     item { SectionLabel("Ученики") }
                     item {
                         Text(
-                            "Учеников: ${state.value.size}. Нажмите на ученика, чтобы сбросить ему пароль, или на значок чата, чтобы написать ему.",
+                            "Учеников: ${active.size}. Нажмите на ученика, чтобы сбросить ему пароль, или на значок чата, чтобы написать ему.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    items(state.value, key = { it.id }) { student ->
-                        Card(onClick = { selected = student }, colors = cardColors(), border = cardBorder()) {
-                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp)) {
-                                Column(Modifier.weight(1f).padding(vertical = 16.dp)) {
-                                    Text(student.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                                    Text(
-                                        listOfNotNull(student.group.takeIf { it.isNotBlank() }?.let { "$it класс" }, "логин ${student.username}")
-                                            .joinToString(" · "),
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                                IconButton(onClick = { onWriteToStudent(student) }) {
-                                    Icon(
-                                        painterResource(R.drawable.ic_chat),
-                                        contentDescription = "Написать: ${student.name}",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                    )
-                                }
+                    items(active, key = { it.id }) { student ->
+                        StudentRow(student, onClick = { selected = student }, onWrite = { onWriteToStudent(student) })
+                    }
+                    if (active.isNotEmpty()) {
+                        item {
+                            NewYearCard(active, repository) { message ->
+                                loader.reload()
+                                scope.launch { snackbar.showSnackbar(message) }
                             }
+                        }
+                    }
+                    if (graduates.isNotEmpty()) {
+                        item { SectionLabel("Выпускники · ${graduates.size}") }
+                        items(graduates, key = { it.id }) { student ->
+                            StudentRow(student, onClick = { selected = student }, onWrite = { onWriteToStudent(student) })
                         }
                     }
                 }
@@ -286,6 +288,102 @@ private fun StudentsTab(
             selected = null
             snackbar.showSnackbar(message)
         }
+    }
+}
+
+@Composable
+private fun StudentRow(student: User, onClick: () -> Unit, onWrite: () -> Unit) {
+    Card(onClick = onClick, colors = cardColors(), border = cardBorder()) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp)) {
+            Column(Modifier.weight(1f).padding(vertical = 16.dp)) {
+                Text(student.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(
+                    listOfNotNull(
+                        if (student.graduated) "выпускник ${student.graduatedFrom}".trim()
+                        else student.group.takeIf { it.isNotBlank() }?.let { "$it класс" },
+                        "логин ${student.username}",
+                    ).joinToString(" · "),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            IconButton(onClick = onWrite) {
+                Icon(painterResource(R.drawable.ic_chat), contentDescription = "Написать: ${student.name}", tint = MaterialTheme.colorScheme.primary)
+            }
+        }
+    }
+}
+
+/** «Новый учебный год»: все — в следующий класс, 11-е — в выпускники. С подтверждением и списком, кто куда. */
+@Composable
+private fun NewYearCard(students: List<User>, repository: Repository, onDone: (String) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    var clearDeadlines by remember { mutableStateOf(true) }
+    var clearChats by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    Card(colors = cardColors(), border = cardBorder(), modifier = Modifier.padding(top = 12.dp)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("🎒 Новый учебный год", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(
+                "В конце года переведите всех учеников в следующий класс одной кнопкой: 8А станет 9А, а 11-е классы — выпускниками.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth()) { Text("Перевести в следующий класс") }
+        }
+    }
+    if (open) {
+        val counts = students.groupingBy { it.group }.eachCount().toSortedMap(compareBy({ it.takeWhile(Char::isDigit).toIntOrNull() ?: 0 }, { it }))
+        AlertDialog(
+            onDismissRequest = { if (!busy) open = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+            modifier = Modifier.padding(horizontal = 16.dp),
+            title = { Text("Новый учебный год") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Все ваши ученики перейдут в следующий класс, а 11-е классы станут выпускниками — им придёт поздравление.")
+                    counts.forEach { (group, n) ->
+                        val next = nextGroup(group)
+                        Text(
+                            when {
+                                next == null -> "• $group → 🎓 выпускники · $n"
+                                next == group -> "• ${group.ifBlank { "без класса" }} — без изменений · $n"
+                                else -> "• $group → $next · $n"
+                            },
+                            fontWeight = if (next != group) FontWeight.Medium else FontWeight.Normal,
+                        )
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.toggleable(clearDeadlines) { clearDeadlines = it }) {
+                        Checkbox(checked = clearDeadlines, onCheckedChange = null)
+                        Text("Убрать прошлогодние сроки сдачи у всех практик", modifier = Modifier.padding(start = 8.dp))
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.toggleable(clearChats) { clearChats = it }) {
+                        Checkbox(checked = clearChats, onCheckedChange = null)
+                        Text("Очистить чаты классов (личные сообщения останутся)", modifier = Modifier.padding(start = 8.dp))
+                    }
+                    Text(error ?: "Отменить перевод нельзя.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = !busy, onClick = {
+                    busy = true
+                    scope.launch {
+                        try {
+                            val r = repository.newYear(clearDeadlines, clearChats)
+                            repository.refreshContent()
+                            open = false
+                            onDone("Готово: в следующий класс — ${r.moved}, выпускников — ${r.graduated}")
+                        } catch (e: Exception) {
+                            error = e.message ?: "Не получилось"
+                        }
+                        busy = false
+                    }
+                }) { Text("Перевести") }
+            },
+            dismissButton = { TextButton(enabled = !busy, onClick = { open = false }) { Text("Отмена") } },
+        )
     }
 }
 

@@ -35,6 +35,7 @@ import ru.prostayahimiya.app.ui.practice.PracticeScreen
 import ru.prostayahimiya.app.ui.reference.ReferenceScreen
 import ru.prostayahimiya.app.ui.subject.SubjectScreen
 import ru.prostayahimiya.app.ui.theory.TheoryScreen
+import ru.prostayahimiya.app.ui.trainer.TrainerScreen
 
 /** Экраны приложения и переходы между ними. */
 @Composable
@@ -60,6 +61,14 @@ fun AppNavigation(repository: Repository) {
         if (repository.user.value?.isTeacher != true) repository.refreshMySubmissions()
     }
 
+    // Нажали на уведомление — открываем нужный экран (практику, работу, чат или панель учителя).
+    val openRequest by repository.openRequest.collectAsState()
+    LaunchedEffect(openRequest) {
+        val route = openRequest ?: return@LaunchedEffect
+        repository.openRequest.value = null
+        runCatching { nav.navigate(route) }
+    }
+
     NavHost(navController = nav, startDestination = "home") {
         composable("home") {
             HomeScreen(
@@ -71,6 +80,7 @@ fun AppNavigation(repository: Repository) {
                 onOpenChat = { nav.navigate("chats") },
                 onOpenPractice = { id -> nav.navigate("practice/$id") },
                 onOpenReference = { nav.navigate("reference") },
+                onOpenTrainer = { nav.navigate("trainer") },
             )
         }
         composable("chats") {
@@ -109,10 +119,18 @@ fun AppNavigation(repository: Repository) {
                 onBack = dropUnlessResumed { nav.popBackStack() },
                 onOpenCabinet = { nav.navigateSingle("cabinet") },
                 onOpenReference = { nav.navigate("reference") },
+                onOpenSubmission = { id -> nav.navigate("submission/$id") },
             )
         }
         composable("reference") {
             ReferenceScreen(onBack = dropUnlessResumed { nav.popBackStack() })
+        }
+        composable("trainer") {
+            TrainerScreen(
+                repository = repository,
+                onBack = dropUnlessResumed { nav.popBackStack() },
+                onOpenReference = { nav.navigate("reference") },
+            )
         }
         composable("theory") {
             TheoryScreen(onBack = dropUnlessResumed { nav.popBackStack() })

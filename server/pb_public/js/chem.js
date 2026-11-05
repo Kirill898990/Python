@@ -446,6 +446,8 @@
     parseEquation, prettyEquation, checkEquation, balanceOf, parseCoefficients, validateTask,
     molarMass, parseNumber, formatNumber, splitBlanks, joinBlanks, blankCount, BLANK, parseChoice,
     checkTask, isCheckableType, CHECKABLE,
+    /** Атомная масса элемента, как в школьной таблице (для объяснения ответа в тренажёре). */
+    atomicMass: (element) => ATOMIC_MASS[element],
   };
   global.Chem = Chem;
   // На сервере (server/pb_hooks) файл подключается через require().

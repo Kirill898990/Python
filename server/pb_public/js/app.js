@@ -12,6 +12,7 @@
     { pattern: /^$/, screen: () => Screens.home(), name: "home" },
     { pattern: /^subject\/(chemistry|biology)$/, screen: (m) => Screens.subject({ subject: m[1] }), name: "subject" },
     { pattern: /^theory$/, screen: () => Screens.theory(), name: "theory" },
+    { pattern: /^trainer$/, screen: () => Trainer.screen(), name: "trainer" },
     { pattern: /^practice\/([a-z0-9]+)$/, screen: (m) => Screens.practice({ id: m[1] }), name: "practice" },
     { pattern: /^cabinet$/, screen: () => Screens.cabinet(), name: "cabinet" },
     { pattern: /^submission\/([a-z0-9]+)$/, screen: (m) => Screens.submission({ id: m[1] }), name: "submission" },

@@ -212,8 +212,14 @@ private fun GradeCard(
                         Text(
                             listOfNotNull(
                                 when {
-                                    !showStatus || last == null -> "$total ${tasksWord(total)}" + if (showStatus) " · не сдано" else ""
+                                    // Сколько заданий в контрольной, ученик узнает только после «Начать».
+                                    !showStatus || last == null -> when {
+                                        practice.exam && showStatus -> practice.examLabel
+                                        practice.exam -> "$total ${tasksWord(total)} · ${practice.examLabel}"
+                                        else -> "$total ${tasksWord(total)}"
+                                    } + if (showStatus) " · не сдано" else ""
                                     last.isGraded -> "Сдано · оценка ${last.grade}"
+                                    last.resultsHidden -> "Сдано · результаты позже"
                                     else -> "Сдано · на проверке"
                                 },
                                 // Учителю — для каких классов и до какого числа.

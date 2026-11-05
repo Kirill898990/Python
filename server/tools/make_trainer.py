@@ -1,0 +1,174 @@
+# Задания тренажёра: из этого списка делаются файлы для сайта и для приложения, поэтому задания у них одинаковые.
+# Чтобы добавить вещество или уравнение, допишите его ниже и запустите из корня проекта:
+#   python3 server/tools/make_trainer.py server/pb_public/js/trainer-data.js android/app/src/main/java/ru/prostayahimiya/app/chem/TrainerData.kt
+# Проверка (все формулы разбираются, уравнения уравнены): node server/tools/check_trainer.js
+import json, sys
+
+# Формулы по валентности: название, формула, валентности (покажем, если ученик попросит ответ).
+FORMULAS = [
+    ("оксид натрия", "Na2O", "Na — I, O — II"),
+    ("оксид калия", "K2O", "K — I, O — II"),
+    ("оксид лития", "Li2O", "Li — I, O — II"),
+    ("оксид магния", "MgO", "Mg — II, O — II"),
+    ("оксид кальция", "CaO", "Ca — II, O — II"),
+    ("оксид бария", "BaO", "Ba — II, O — II"),
+    ("оксид цинка", "ZnO", "Zn — II, O — II"),
+    ("оксид меди(II)", "CuO", "Cu — II, O — II"),
+    ("оксид меди(I)", "Cu2O", "Cu — I, O — II"),
+    ("оксид железа(II)", "FeO", "Fe — II, O — II"),
+    ("оксид железа(III)", "Fe2O3", "Fe — III, O — II"),
+    ("оксид алюминия", "Al2O3", "Al — III, O — II"),
+    ("оксид хрома(III)", "Cr2O3", "Cr — III, O — II"),
+    ("оксид углерода(II)", "CO", "C — II, O — II"),
+    ("оксид углерода(IV)", "CO2", "C — IV, O — II"),
+    ("оксид серы(IV)", "SO2", "S — IV, O — II"),
+    ("оксид серы(VI)", "SO3", "S — VI, O — II"),
+    ("оксид фосфора(V)", "P2O5", "P — V, O — II"),
+    ("оксид азота(V)", "N2O5", "N — V, O — II"),
+    ("оксид азота(IV)", "NO2", "N — IV, O — II"),
+    ("оксид кремния(IV)", "SiO2", "Si — IV, O — II"),
+    ("оксид марганца(VII)", "Mn2O7", "Mn — VII, O — II"),
+    ("хлорид натрия", "NaCl", "Na — I, Cl — I"),
+    ("хлорид калия", "KCl", "K — I, Cl — I"),
+    ("хлорид магния", "MgCl2", "Mg — II, Cl — I"),
+    ("хлорид кальция", "CaCl2", "Ca — II, Cl — I"),
+    ("хлорид бария", "BaCl2", "Ba — II, Cl — I"),
+    ("хлорид цинка", "ZnCl2", "Zn — II, Cl — I"),
+    ("хлорид меди(II)", "CuCl2", "Cu — II, Cl — I"),
+    ("хлорид железа(II)", "FeCl2", "Fe — II, Cl — I"),
+    ("хлорид железа(III)", "FeCl3", "Fe — III, Cl — I"),
+    ("хлорид алюминия", "AlCl3", "Al — III, Cl — I"),
+    ("хлорид серебра", "AgCl", "Ag — I, Cl — I"),
+    ("сульфид натрия", "Na2S", "Na — I, S — II"),
+    ("сульфид калия", "K2S", "K — I, S — II"),
+    ("сульфид цинка", "ZnS", "Zn — II, S — II"),
+    ("сульфид железа(II)", "FeS", "Fe — II, S — II"),
+    ("сульфид меди(II)", "CuS", "Cu — II, S — II"),
+    ("сульфид алюминия", "Al2S3", "Al — III, S — II"),
+    ("бромид натрия", "NaBr", "Na — I, Br — I"),
+    ("бромид калия", "KBr", "K — I, Br — I"),
+    ("бромид магния", "MgBr2", "Mg — II, Br — I"),
+    ("иодид калия", "KI", "K — I, I — I"),
+    ("иодид натрия", "NaI", "Na — I, I — I"),
+    ("иодид серебра", "AgI", "Ag — I, I — I"),
+    ("нитрид лития", "Li3N", "Li — I, N — III"),
+    ("нитрид магния", "Mg3N2", "Mg — II, N — III"),
+    ("нитрид кальция", "Ca3N2", "Ca — II, N — III"),
+    ("нитрид алюминия", "AlN", "Al — III, N — III"),
+    ("фосфид кальция", "Ca3P2", "Ca — II, P — III"),
+    ("карбид алюминия", "Al4C3", "Al — III, C — IV"),
+    ("гидрид натрия", "NaH", "Na — I, H — I"),
+    ("гидрид кальция", "CaH2", "Ca — II, H — I"),
+    ("хлороводород", "HCl", "H — I, Cl — I"),
+    ("сероводород", "H2S", "H — I, S — II"),
+    ("аммиак", "NH3", "N — III, H — I"),
+    ("метан", "CH4", "C — IV, H — I"),
+]
+
+# Молярная масса: формулы веществ.
+MOLAR = [
+    "H2O", "CO2", "O2", "N2", "NH3", "CH4", "HCl", "NaCl", "NaOH", "KOH", "H2SO4", "HNO3", "H3PO4", "H2CO3",
+    "CaCO3", "Na2CO3", "NaHCO3", "CaO", "MgO", "ZnO", "Al2O3", "Fe2O3", "CuO", "SO2", "SO3", "P2O5", "CuSO4",
+    "ZnSO4", "K2SO4", "Na2SO4", "BaSO4", "BaCl2", "AgNO3", "KNO3", "NaNO3", "Ca(OH)2", "Fe(OH)3", "Al(OH)3",
+    "Mg(NO3)2", "KMnO4", "C6H12O6", "C2H5OH", "Ca3(PO4)2", "FeS", "CuSO4·5H2O",
+]
+
+# Уравнения без коэффициентов и правильные коэффициенты (самые маленькие).
+EQUATIONS = [
+    ("H2 + O2 = H2O", [2, 1, 2]),
+    ("Al + O2 = Al2O3", [4, 3, 2]),
+    ("Fe + Cl2 = FeCl3", [2, 3, 2]),
+    ("Na + H2O = NaOH + H2", [2, 2, 2, 1]),
+    ("Mg + HCl = MgCl2 + H2", [1, 2, 1, 1]),
+    ("CH4 + O2 = CO2 + H2O", [1, 2, 1, 2]),
+    ("P + O2 = P2O5", [4, 5, 2]),
+    ("Zn + HCl = ZnCl2 + H2", [1, 2, 1, 1]),
+    ("Al + HCl = AlCl3 + H2", [2, 6, 2, 3]),
+    ("Fe2O3 + H2 = Fe + H2O", [1, 3, 2, 3]),
+    ("KClO3 = KCl + O2", [2, 2, 3]),
+    ("H2O2 = H2O + O2", [2, 2, 1]),
+    ("N2 + H2 = NH3", [1, 3, 2]),
+    ("Na + Cl2 = NaCl", [2, 1, 2]),
+    ("Cu + O2 = CuO", [2, 1, 2]),
+    ("Fe + O2 = Fe3O4", [3, 2, 1]),
+    ("C2H6 + O2 = CO2 + H2O", [2, 7, 4, 6]),
+    ("NaOH + H2SO4 = Na2SO4 + H2O", [2, 1, 1, 2]),
+    ("Al + S = Al2S3", [2, 3, 1]),
+    ("Ca + H2O = Ca(OH)2 + H2", [1, 2, 1, 1]),
+    ("Fe(OH)3 = Fe2O3 + H2O", [2, 1, 3]),
+    ("BaCl2 + Na2SO4 = BaSO4 + NaCl", [1, 1, 1, 2]),
+    ("Al + Fe2O3 = Al2O3 + Fe", [2, 1, 1, 2]),
+    ("Li + O2 = Li2O", [4, 1, 2]),
+    ("K + H2O = KOH + H2", [2, 2, 2, 1]),
+    ("C3H8 + O2 = CO2 + H2O", [1, 5, 3, 4]),
+    ("Al(OH)3 + HCl = AlCl3 + H2O", [1, 3, 1, 3]),
+    ("Mg + O2 = MgO", [2, 1, 2]),
+    ("Zn + O2 = ZnO", [2, 1, 2]),
+    ("SO2 + O2 = SO3", [2, 1, 2]),
+    ("NO + O2 = NO2", [2, 1, 2]),
+    ("HgO = Hg + O2", [2, 2, 1]),
+    ("Fe + HCl = FeCl2 + H2", [1, 2, 1, 1]),
+    ("CuO + HCl = CuCl2 + H2O", [1, 2, 1, 1]),
+    ("CaO + HCl = CaCl2 + H2O", [1, 2, 1, 1]),
+    ("Fe2O3 + HCl = FeCl3 + H2O", [1, 6, 2, 3]),
+    ("P2O5 + H2O = H3PO4", [1, 3, 2]),
+    ("Na2O + H2O = NaOH", [1, 1, 2]),
+    ("NH3 + O2 = N2 + H2O", [4, 3, 2, 6]),
+    ("C2H4 + O2 = CO2 + H2O", [1, 3, 2, 2]),
+    ("KOH + H3PO4 = K3PO4 + H2O", [3, 1, 1, 3]),
+    ("Al2O3 + H2SO4 = Al2(SO4)3 + H2O", [1, 3, 1, 3]),
+]
+
+# Классы веществ: 1 — оксид, 2 — кислота, 3 — основание, 4 — соль.
+CLASS_NAMES = ["Оксид", "Кислота", "Основание", "Соль"]
+CLASS_HINTS = [
+    "Оксид — два элемента, один из них кислород",
+    "Кислота — водород и кислотный остаток",
+    "Основание — металл и группы OH",
+    "Соль — металл и кислотный остаток",
+]
+CLASSES = [(f, 1) for f in ["CO2", "CaO", "Al2O3", "SO3", "Fe2O3", "P2O5", "Na2O", "CuO", "MgO", "SiO2"]] + \
+    [(f, 2) for f in ["HCl", "H2SO4", "HNO3", "H3PO4", "H2CO3", "H2S", "HBr", "H2SO3"]] + \
+    [(f, 3) for f in ["NaOH", "KOH", "Ca(OH)2", "Fe(OH)3", "Cu(OH)2", "Ba(OH)2", "Mg(OH)2", "LiOH"]] + \
+    [(f, 4) for f in ["NaCl", "CaCO3", "CuSO4", "KNO3", "Na2SO4", "AgCl", "FeCl3", "K3PO4", "BaSO4", "Na2CO3", "MgCl2", "ZnS"]]
+
+js_out, kt_out = sys.argv[1], sys.argv[2]
+data = {
+    "formulas": [list(x) for x in FORMULAS],
+    "molar": MOLAR,
+    "equations": [[t, c] for t, c in EQUATIONS],
+    "classes": [list(x) for x in CLASSES],
+    "classNames": CLASS_NAMES,
+    "classHints": CLASS_HINTS,
+}
+with open(js_out, "w", encoding="utf-8") as f:
+    f.write("// Задания тренажёра. Файл сделан из server/tools/make_trainer.py — правьте там, а не здесь.\n")
+    f.write("window.TrainerData = " + json.dumps(data, ensure_ascii=False, indent=1) + ";\n")
+
+k = lambda s: json.dumps(s, ensure_ascii=False)  # строка Kotlin в кавычках ($ в данных нет)
+with open(kt_out, "w", encoding="utf-8") as f:
+    f.write("package ru.prostayahimiya.app.chem\n\n")
+    f.write("// Задания тренажёра. Файл сделан из server/tools/make_trainer.py — правьте там, а не здесь.\n")
+    f.write("object TrainerData {\n")
+    f.write("    /** Название вещества, формула, валентности. */\n")
+    f.write("    val formulas: List<Triple<String, String, String>> = listOf(\n")
+    for n, fo, v in FORMULAS:
+        f.write(f"        Triple({k(n)}, {k(fo)}, {k(v)}),\n")
+    f.write("    )\n\n    val molar: List<String> = listOf(\n")
+    for m in MOLAR:
+        f.write(f"        {k(m)},\n")
+    f.write("    )\n\n    /** Уравнение без коэффициентов и правильные коэффициенты. */\n")
+    f.write("    val equations: List<Pair<String, List<Int>>> = listOf(\n")
+    for t, c in EQUATIONS:
+        f.write(f"        {k(t)} to listOf({', '.join(map(str, c))}),\n")
+    f.write("    )\n\n    /** Формула и класс: 1 — оксид, 2 — кислота, 3 — основание, 4 — соль. */\n")
+    f.write("    val classes: List<Pair<String, Int>> = listOf(\n")
+    for fo, c in CLASSES:
+        f.write(f"        {k(fo)} to {c},\n")
+    f.write("    )\n\n")
+    f.write("    val classNames: List<String> = listOf(" + ", ".join(map(k, CLASS_NAMES)) + ")\n\n")
+    f.write("    val classHints: List<String> = listOf(\n")
+    for h in CLASS_HINTS:
+        f.write(f"        {k(h)},\n")
+    f.write("    )\n}\n")
+print("trainer data:", len(FORMULAS), "formulas,", len(MOLAR), "molar,", len(EQUATIONS), "equations,", len(CLASSES), "classes")

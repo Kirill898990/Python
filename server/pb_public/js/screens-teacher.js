@@ -4,7 +4,7 @@
  */
 (function () {
   "use strict";
-  const { h, replace, icon, topBar, sectionLabel, button, field, segmented, chip, emptyBox, dialog, confirm, toast, gradeBadge } = UI;
+  const { h, replace, icon, topBar, sectionLabel, button, field, segmented, chip, emptyBox, dialog, confirm, toast, gradeBadge, feedback } = UI;
   const { content } = Api;
 
   const TYPES = {
@@ -74,6 +74,33 @@
       saveBtn);
   }
 
+  /** Контрольная: разрешить ученику написать её ещё раз (сданная работа удалится). */
+  function examRetake(s) {
+    const st = s.expand && s.expand.student;
+    let busy = false;
+    const btn = button("Разрешить пересдать", async () => {
+      if (busy) return;
+      const ok = await confirm("Разрешить пересдать?",
+        `Эта работа удалится, и ${st ? st.name : "ученик"} сможет написать контрольную ещё раз — даже если срок уже прошёл.`, "Разрешить");
+      if (!ok) return;
+      busy = true;
+      btn.disabled = true;
+      try {
+        await Api.resetExam(s.practice, s.student);
+        toast("Готово: ученик может написать контрольную ещё раз");
+        App.back("admin/works");
+      } catch (e) {
+        toast(e.message || "Не получилось");
+        busy = false;
+        btn.disabled = false;
+      }
+    }, { kind: "outline", cls: "btn-block" });
+    return h("div", { class: "card stack" },
+      h("div", { class: "card-title" }, "Контрольная"),
+      h("p", { class: "small muted" }, "Если ученику помешали (сел телефон, пропал интернет), можно дать ему написать работу заново."),
+      btn);
+  }
+
   // ----- Список практик -----
   function practices() {
     const list = ["chemistry", "biology"].map((key) => {
@@ -86,6 +113,7 @@
             h("div", { class: "row" }, h("span", { class: "card-title" }, `${p.grade} класс · ${p.title}`), !p.published && h("span", { class: "pill pill-draft" }, "Черновик")),
             h("div", { class: "card-sub" }, [
               `Заданий: ${content.tasksOf(p.id).length}`,
+              p.exam && Content.examLabel(p).toLowerCase(),
               Array.isArray(p.classes) && p.classes.length ? "для " + p.classes.join(", ") : "для всех классов",
               Content.deadlineOf(p) && "до " + Content.formatDay(Content.deadlineOf(p)),
             ].filter(Boolean).join(" · "))),
@@ -280,23 +308,76 @@
 
   // ----- Ученики -----
   function students() {
-    return Screens.asyncBlock(() => Api.students(), (items) => {
+    const box = Screens.asyncBlock(() => Api.students(), (all) => {
+      const items = all.filter((s) => !s.graduated);
+      const graduates = all.filter((s) => s.graduated);
       const groups = [...new Set(items.map((s) => s.group).filter(Boolean))].sort(byClass);
       const codes = [sectionLabel("Коды классов"), classCodes(groups), sectionLabel("Ученики")];
-      if (!items.length) return [codes, emptyBox("👥", "Пока никто из учеников не зарегистрировался")];
+      const row = (st) => h("div", { class: "card student-row" },
+        h("button", { class: "student-main", type: "button", onclick: () => resetPassword(st) },
+          h("div", { class: "card-title" }, st.name),
+          h("div", { class: "card-sub" }, [st.graduated ? `выпускник ${st.graduatedFrom}` : st.group && `${st.group} класс`, `логин ${st.username}`].filter(Boolean).join(" · "))),
+        h("button", {
+          class: "icon-btn", type: "button", "aria-label": `Написать: ${st.name}`, title: "Написать ученику",
+          onclick: () => Chat.open({ kind: "private", student: st.id }, st.group ? `${st.name}, ${st.group}` : st.name),
+        }, icon("chat")));
+      if (!items.length && !graduates.length) return [codes, emptyBox("👥", "Пока никто из учеников не зарегистрировался")];
       return [
         codes,
         h("p", { class: "muted small" }, `Учеников: ${items.length}. Нажмите на ученика, чтобы сбросить ему пароль, или на 💬, чтобы написать ему.`),
-        items.map((st) => h("div", { class: "card student-row" },
-          h("button", { class: "student-main", type: "button", onclick: () => resetPassword(st) },
-            h("div", { class: "card-title" }, st.name),
-            h("div", { class: "card-sub" }, [st.group && `${st.group} класс`, `логин ${st.username}`].filter(Boolean).join(" · "))),
-          h("button", {
-            class: "icon-btn", type: "button", "aria-label": `Написать: ${st.name}`, title: "Написать ученику",
-            onclick: () => Chat.open({ kind: "private", student: st.id }, st.group ? `${st.name}, ${st.group}` : st.name),
-          }, icon("chat")))),
+        items.map(row),
+        items.length > 0 && newYearCard(items, () => box.reload()),
+        graduates.length > 0 && [sectionLabel(`Выпускники · ${graduates.length}`), graduates.map(row)],
       ];
     });
+    return box;
+  }
+
+  /** «Новый учебный год»: все — в следующий класс, 11-е — в выпускники. С подтверждением и списком, кто куда. */
+  function newYearCard(items, done) {
+    const open = () => dialog((close) => {
+      const counts = new Map();
+      items.forEach((st) => counts.set(st.group || "", (counts.get(st.group || "") || 0) + 1));
+      const lines = [...counts.keys()].sort(byClass).map((g) => {
+        const next = Content.nextGroup(g);
+        const n = counts.get(g);
+        if (next === null) return h("li", null, h("b", null, g), " → 🎓 выпускники", h("span", { class: "muted" }, ` · ${n}`));
+        if (next === g) return h("li", { class: "muted" }, `${g || "без класса"} — без изменений · ${n}`);
+        return h("li", null, h("b", null, g), " → ", h("b", null, next), h("span", { class: "muted" }, ` · ${n}`));
+      });
+      const deadlines = h("input", { type: "checkbox", checked: true });
+      const chats = h("input", { type: "checkbox" });
+      const error = h("div", { class: "dialog-error" });
+      const go = button("Перевести", async () => {
+        go.disabled = true;
+        try {
+          const r = await Api.newYear(deadlines.checked, chats.checked);
+          close();
+          toast(`Готово: в следующий класс — ${r.moved}, выпускников — ${r.graduated}`);
+          await Api.refreshContent();
+          done();
+        } catch (e) {
+          error.textContent = e.message || "Не получилось";
+          go.disabled = false;
+        }
+      }, { kind: "text" });
+      return {
+        title: "Новый учебный год",
+        body: [
+          h("p", null, "Все ваши ученики перейдут в следующий класс, а 11-е классы станут выпускниками — им придёт поздравление."),
+          h("ul", { class: "year-moves" }, lines),
+          h("label", { class: "check-row" }, deadlines, h("span", null, "Убрать прошлогодние сроки сдачи у всех практик")),
+          h("label", { class: "check-row" }, chats, h("span", null, "Очистить чаты классов (личные сообщения останутся)")),
+          h("p", { class: "small err" }, "Отменить перевод нельзя."),
+          error,
+        ],
+        actions: [button("Отмена", close, { kind: "text" }), go],
+      };
+    });
+    return h("div", { class: "card stack mt-lg" },
+      h("div", { class: "card-title" }, "🎒 Новый учебный год"),
+      h("p", { class: "small muted" }, "В конце года переведите всех учеников в следующий класс одной кнопкой: 8А станет 9А, а 11-е классы — выпускниками."),
+      button("Перевести в следующий класс", open, { kind: "outline", cls: "btn-block" }));
   }
 
   function resetPassword(st) {
@@ -344,6 +425,8 @@
       position: original ? original.position : 0,
       classes: original && Array.isArray(original.classes) ? original.classes.slice() : [],
       deadline: original ? original.deadline || "" : "",
+      exam: original ? !!original.exam : false,
+      timeLimit: original ? original.timeLimit || 0 : 40,
     };
 
     // ----- Для каких классов -----
@@ -389,6 +472,20 @@
     publishedInput.addEventListener("change", () => { form.published = publishedInput.checked; updatePublished(); });
     updatePublished();
 
+    // ----- Контрольная -----
+    const examInput = h("input", { type: "checkbox", checked: form.exam, "aria-label": "Контрольная работа" });
+    const timeField = field({
+      label: "Время на работу, минут", value: form.timeLimit ? String(form.timeLimit) : "", inputmode: "numeric",
+      supporting: "Пусто или 0 — без ограничения", oninput: (v) => { form.timeLimit = parseInt(v.replace(/\D/g, ""), 10) || 0; },
+    });
+    const examBox = h("div", { class: "stack" },
+      timeField,
+      h("p", { class: "tiny muted" }, "Ответы не проверяются сразу, подсказок нет, сдать можно один раз. Задания ученик увидит только после «Начать». " +
+        "Результаты — после срока сдачи (если срока нет — когда вы поставите оценку)."));
+    const updateExam = () => { examBox.hidden = !form.exam; };
+    examInput.addEventListener("change", () => { form.exam = examInput.checked; updateExam(); });
+    updateExam();
+
     async function savePractice() {
       if (busy) return;
       if (!form.title.trim()) return toast("Впишите название практики");
@@ -423,6 +520,7 @@
         h("p", { class: "small bold mt" }, "Добавить задание:"),
         h("div", { class: "row-wrap" }, Object.entries(TYPES).map(([type, info]) =>
           button("+ " + info.title, () => editTask({ practice: id, type, text: "", answer: "", options: [], position: Math.max(0, ...tasks.map((x) => x.position || 0)) + 1 }), { kind: "outline" }))),
+        button("✨ Сгенерировать нейросетью", () => generateDialog(tasks), { cls: "btn-block mt" }),
         button("Удалить практику", deletePractice, { kind: "outline", cls: "btn-danger btn-block mt-lg" }));
     }
 
@@ -450,6 +548,116 @@
           h("button", { class: "icon-btn", "aria-label": "Выше", title: "Выше", disabled: index === 0, onclick: () => move(tasks, index, index - 1) }, "▲"),
           h("button", { class: "icon-btn", "aria-label": "Ниже", title: "Ниже", disabled: index === tasks.length - 1, onclick: () => move(tasks, index, index + 1) }, "▼")),
         h("button", { class: "icon-btn", "aria-label": "Удалить задание", title: "Удалить", onclick: () => deleteTask(t) }, "🗑️"));
+    }
+
+    /** Как задание будет выглядеть в списке: текст и правильный ответ (для предпросмотра заданий от нейросети). */
+    function describe(t) {
+      const eq = t.type === "equation" ? Chem.parseEquation(t.text) : null;
+      const molar = t.type === "molar" ? Chem.molarMass(t.text) : null;
+      const options = t.options || [];
+      const right = new Set(Chem.parseChoice(t.answer));
+      return {
+        text: eq ? Chem.prettyEquation(eq) : molar ? `M(${Chem.pretty(t.text)})` : t.text,
+        options: t.type === "choice" ? options.map((o, k) => (right.has(k + 1) ? "✅ " : "▫️ ") + Chem.prettyIfFormula(o)) : [],
+        answer: {
+          formula: () => Chem.pretty(t.answer),
+          equation: () => (eq ? Chem.prettyEquation(eq, Chem.parseCoefficients(t.answer)) : ""),
+          fill: () => String(t.answer).split("|").map((w) => w.split("/")[0]).join("; "),
+          molar: () => (molar && molar.ok ? Chem.formatNumber(molar.value) + " г/моль" : ""),
+        }[t.type],
+      };
+    }
+
+    /** Окно «Сгенерировать нейросетью»: запрос → задания на выбор → «Добавить выбранные». */
+    function generateDialog(tasks) {
+      const types = new Set(["choice", "fill", "formula", "molar", "equation"]);
+      let count = 10;
+      let prompt = "";
+      dialog((close) => {
+        const body = h("div", { class: "stack" });
+        const actions = h("div", { class: "dialog-actions" });
+        const shell = h("div", { class: "stack" }, body, actions);
+
+        function form(message) {
+          const countChips = h("div", { class: "row-wrap" });
+          const renderCount = () => replace(countChips, [5, 10, 15].map((n) => chip(String(n), count === n, () => { count = n; renderCount(); })));
+          renderCount();
+          const typeChips = h("div", { class: "row-wrap" });
+          const renderTypes = () => replace(typeChips, Object.entries(TYPES).map(([key, info]) => chip(`${info.emoji} ${info.title}`, types.has(key), () => {
+            if (types.has(key) && types.size > 1) types.delete(key); else types.add(key);
+            renderTypes();
+          })));
+          renderTypes();
+          replace(body,
+            h("p", { class: "small muted" }, "Напишите тему и что проверить — нейросеть YandexGPT составит задания, а сайт проверит формулы, уравнения и ответы. " +
+              "Ничего не добавится, пока вы сами не выберете."),
+            field({ label: "Что нужно", multiline: true, rows: 3, value: prompt, placeholder: "Например: оксиды — классификация, формулы по названию, уравнения получения",
+              oninput: (v) => { prompt = v; } }),
+            h("div", { class: "small bold" }, "Сколько заданий"), countChips,
+            h("div", { class: "small bold" }, "Какие задания"), typeChips,
+            message && feedback(message, "error"));
+          replace(actions, button("Отмена", close, { kind: "text" }), button("✨ Сгенерировать", generate));
+        }
+
+        async function generate() {
+          if (prompt.trim().length < 3) return form("Напишите, какие задания нужны: тему и что проверить");
+          replace(body, h("div", { class: "center stack" }, h("span", { class: "spinner" }),
+            h("p", { class: "muted" }, "Нейросеть составляет задания… Обычно это 10–40 секунд.")));
+          replace(actions);
+          try {
+            const r = await Api.generateTasks(id, prompt.trim(), count, [...types]);
+            results(r);
+          } catch (e) {
+            form(e.message || "Не получилось");
+          }
+        }
+
+        function results(r) {
+          const chosen = new Set(r.tasks.map((_, i) => i));
+          const addBtn = button("", add);
+          const updateAdd = () => { replace(addBtn, h("span", null, `Добавить выбранные (${chosen.size})`)); addBtn.disabled = !chosen.size; };
+          updateAdd();
+          replace(body,
+            h("p", { class: "small" }, `Нейросеть предложила ${r.tasks.length} ${Content.tasksWord(r.tasks.length)}.` +
+              (r.dropped ? ` Ещё ${r.dropped} с ошибками сайт убрал сам.` : "") + " Снимите галочки с ненужных."),
+            r.tasks.map((t, i) => {
+              const d = describe(t);
+              const box = h("input", { type: "checkbox", checked: true, "aria-label": "Добавить это задание" });
+              box.addEventListener("change", () => { if (box.checked) chosen.add(i); else chosen.delete(i); updateAdd(); });
+              const info = TYPES[t.type] || TYPES.question;
+              return h("label", { class: "card gen-task" }, box,
+                h("div", { class: "grow" },
+                  h("div", { class: "task-label" }, `${info.emoji} ${info.title}`),
+                  h("div", { class: "task-row-text" }, d.text),
+                  d.options.length > 0 && h("div", { class: "small" }, d.options.map((o) => h("div", null, o))),
+                  d.answer && d.answer() && h("div", { class: "small ok" }, "Ответ: " + d.answer())));
+            }),
+            r.left != null && h("p", { class: "tiny muted" }, `Осталось запросов к нейросети на сегодня: ${r.left}`));
+          replace(actions, button("Ещё раз", generate, { kind: "text" }), addBtn);
+
+          async function add() {
+            addBtn.disabled = true;
+            let position = Math.max(0, ...tasks.map((x) => x.position || 0));
+            let added = 0;
+            try {
+              for (const i of [...chosen].sort((a, b) => a - b)) {
+                const t = r.tasks[i];
+                await Api.saveTask({ practice: id, type: t.type, text: t.text, answer: t.answer, options: t.options, multiple: t.multiple, position: ++position });
+                added++;
+              }
+              close();
+              toast(`Добавлено заданий: ${added}`);
+            } catch (e) {
+              toast((e.message || "Ошибка") + (added ? ` (добавлено ${added})` : ""));
+              addBtn.disabled = false;
+            }
+            renderTasks();
+          }
+        }
+
+        form();
+        return { title: "✨ Задания от нейросети", body: shell, actions: [] };
+      }, { wide: true });
     }
 
     async function serverAction(action, success) {
@@ -707,11 +915,15 @@
         h("div", { class: "small bold" }, "Срок сдачи (необязательно)"),
         h("div", { class: "row" }, deadlineInput, clearDeadline),
         h("div", { class: "row" },
+          h("div", { class: "grow" }, h("div", null, "Контрольная работа"), h("div", { class: "tiny muted" }, "Без мгновенной проверки, с таймером")),
+          h("label", { class: "switch" }, examInput, h("span"))),
+        examBox,
+        h("div", { class: "row" },
           h("div", { class: "grow" }, h("div", null, "Опубликовано"), publishedHint),
           h("label", { class: "switch" }, publishedInput, h("span"))),
         saveBtn),
       tasksBox);
   }
 
-  window.Teacher = { admin, editor, gradeEditor };
+  window.Teacher = { admin, editor, gradeEditor, examRetake };
 })();

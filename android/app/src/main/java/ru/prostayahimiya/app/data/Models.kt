@@ -26,7 +26,33 @@ data class User(
     val teacher: String = "",
     /** Зарегистрировался как учитель и ждёт подтверждения администратора. */
     val wantsTeacher: Boolean = false,
+    /** Выпускник: класса больше нет (ставит кнопка «Новый учебный год»). */
+    val graduated: Boolean = false,
+    /** Из какого класса выпустился, например «11А». */
+    val graduatedFrom: String = "",
 )
+
+/** Задания от нейросети: проверенные сервером задания (ещё не сохранены), сколько отброшено и сколько запросов осталось. */
+@Serializable
+data class GeneratedTasks(val tasks: List<Task> = emptyList(), val dropped: Int = 0, val left: Int? = null)
+
+/** Итог «Нового учебного года». */
+@Serializable
+data class NewYearResult(val moved: Int = 0, val graduated: Int = 0, val deadlinesCleared: Int = 0, val messagesDeleted: Int = 0)
+
+/**
+ * В какой класс ученик перейдёт в новом учебном году: «8А» → «9А», «11Б» → null (выпускник),
+ * класс без номера («Кружок») не меняется. Так же считает сервер.
+ */
+fun nextGroup(group: String): String? {
+    val m = Regex("^(\\d{1,2})(.*)$").find(group.trim()) ?: return group
+    val grade = m.groupValues[1].toInt()
+    return when {
+        grade >= 11 -> null
+        grade >= 1 -> "${grade + 1}${m.groupValues[2]}"
+        else -> group
+    }
+}
 
 @Serializable
 data class AuthResponse(val token: String, val record: User)
@@ -47,8 +73,23 @@ data class Practice(
     val classes: List<String> = emptyList(),
     /** Срок сдачи (время сервера) или пусто. */
     val deadline: String = "",
+    /** Контрольная: ответы сразу не проверяются, сдать можно один раз, задания — только после «Начать». */
+    val exam: Boolean = false,
+    /** Минут на контрольную (0 — без ограничения). */
+    val timeLimit: Int = 0,
 ) {
     val subjectEnum: Subject get() = Subject.fromKey(subject)
+
+    /** «Контрольная · 40 мин» */
+    val examLabel: String get() = "Контрольная" + if (timeLimit > 0) " · $timeLimit мин" else ""
+
+    /** Когда ученик увидит результаты контрольной. Так же пишет сайт. */
+    val examResultsText: String
+        get() {
+            val d = deadlineInstant
+            return if (d != null && d.isAfter(Instant.now())) "Результаты появятся после срока сдачи — ${formatDay(d)}"
+            else "Результаты появятся, когда учитель проверит работу"
+        }
 
     val deadlineInstant: Instant? get() = parseServerInstant(deadline)
 
@@ -173,6 +214,10 @@ data class Submission(
     val expand: SubmissionExpand? = null,
     /** Какой вариант решал ученик (0 — вариантов не было). */
     val variant: Int = 0,
+    /** Контрольная пришла после того, как время вышло. */
+    val overtime: Boolean = false,
+    /** Контрольная: результаты ещё закрыты (до срока сдачи или оценки), «верно/неверно» сервер не прислал. */
+    val resultsHidden: Boolean = false,
 ) {
     val isGraded: Boolean get() = grade > 0
     val studentUser: User? get() = expand?.student
@@ -189,6 +234,8 @@ data class ContentData(
     val notes: List<Note> = emptyList(),
     /** Варианты текущего ученика: id практики → номер варианта (считает сервер, /api/variants). */
     val variants: Map<String, Int> = emptyMap(),
+    /** Начатые контрольные ученика: id практики → когда начата (время сервера). */
+    val examStarts: Map<String, String> = emptyMap(),
 ) {
     fun practice(id: String): Practice? = practices.firstOrNull { it.id == id }
 
@@ -348,4 +395,24 @@ fun formatServerDate(value: String): String {
     } catch (_: Exception) {
         value
     }
+}
+
+/** Запись о начатой контрольной (коллекция exam_starts). */
+@Serializable
+data class ExamStart(val practice: String = "", val started: String = "")
+
+/** Ответ /api/exam/start: когда начата, сколько минут и задания (раньше «Начать» ученик их не видит). */
+@Serializable
+data class ExamStartResponse(
+    val started: String = "",
+    val now: String = "",
+    val timeLimit: Int = 0,
+    val submitted: Boolean = false,
+    val tasks: List<Task> = emptyList(),
+)
+
+/** Идущая контрольная: когда кончится время (null — без ограничения) и насколько часы сервера впереди телефона. */
+data class ExamSession(val endsAt: Instant?, val offsetMillis: Long) {
+    /** Сколько миллисекунд осталось по часам сервера. */
+    fun leftMillis(nowMillis: Long = System.currentTimeMillis()): Long? = endsAt?.let { it.toEpochMilli() - (nowMillis + offsetMillis) }
 }

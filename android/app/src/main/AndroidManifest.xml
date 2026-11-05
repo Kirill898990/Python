@@ -3,6 +3,8 @@
 
     <!-- Нужен для отправки ответов учителю. Остальное приложение работает без интернета. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Уведомления о новых заданиях, оценках, сообщениях и сроках сдачи (Android 13+ спрашивает разрешение). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:name=".HimiyaApp"
@@ -16,6 +18,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTop"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

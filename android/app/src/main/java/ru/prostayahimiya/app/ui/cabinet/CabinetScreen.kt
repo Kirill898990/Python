@@ -47,6 +47,7 @@ import ru.prostayahimiya.app.ui.components.ErrorBox
 import ru.prostayahimiya.app.ui.components.GradeBadge
 import ru.prostayahimiya.app.ui.components.Load
 import ru.prostayahimiya.app.ui.components.LoadingBox
+import ru.prostayahimiya.app.ui.components.NotificationsSettingCard
 import ru.prostayahimiya.app.ui.components.SectionLabel
 import ru.prostayahimiya.app.ui.components.cardBorder
 import ru.prostayahimiya.app.ui.components.cardColors
@@ -80,6 +81,7 @@ fun CabinetScreen(repository: Repository, onBack: () -> Unit, onOpenSubmission: 
                 modifier = Modifier.fillMaxSize(),
             ) {
                 user?.let { item { ProfileCard(it, teacherName) } }
+                item { NotificationsSettingCard(repository, teacher = user?.isTeacher == true) }
 
                 item { SectionLabel("Мои работы") }
                 when (val state = loader.state) {
@@ -136,7 +138,11 @@ private fun ProfileCard(user: User, teacherName: String) {
                 Text(user.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                 Text(
                     buildString {
-                        if (user.isTeacher) append("Учитель") else if (user.group.isNotBlank()) append("${user.group} класс")
+                        when {
+                            user.isTeacher -> append("Учитель")
+                            user.graduated -> append("Выпускник ${user.graduatedFrom}".trim())
+                            user.group.isNotBlank() -> append("${user.group} класс")
+                        }
                         append(" · логин ${user.username}")
                     },
                     style = MaterialTheme.typography.bodyMedium,
@@ -194,14 +200,20 @@ fun SubmissionCard(submission: Submission, showStudent: Boolean, late: Boolean =
                 Text(
                     buildString {
                         append(formatServerDate(submission.created))
-                        if (submission.total > 0) append(" · решено ${submission.solved} из ${submission.total}")
+                        if (submission.resultsHidden) append(" · результаты позже")
+                        else if (submission.total > 0) append(" · решено ${submission.solved} из ${submission.total}")
                         if (submission.variant > 0) append(" · вариант ${submission.variant}")
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                if (late) {
-                    Text("⏰ с опозданием", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
+                if (late || submission.overtime) {
+                    Text(
+                        listOfNotNull("с опозданием".takeIf { late }, "время вышло".takeIf { submission.overtime }).joinToString(" · ", prefix = "⏰ "),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.error,
+                        fontWeight = FontWeight.SemiBold,
+                    )
                 }
             }
             GradeBadge(submission.grade)

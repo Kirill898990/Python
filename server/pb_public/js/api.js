@@ -91,9 +91,15 @@
       Object.entries(data).forEach(([field, value]) => { fields[field] = fieldMessage(field, value && value.code); });
     } catch (_) { /* не JSON */ }
     const firstField = Object.values(fields)[0];
+    // Наши сообщения с сервера написаны по-русски («Срок контрольной прошёл…») — их показываем как есть.
+    // Стандартные сообщения PocketBase (по-английски) заменяем на понятные ниже.
+    let serverMessage = "";
+    try { serverMessage = String(JSON.parse(text).message || ""); } catch (_) { /* не JSON */ }
+    if (!/[а-яё]/i.test(serverMessage)) serverMessage = "";
     let message;
     if (path.endsWith("auth-with-password") && status === 400) message = "Неверный логин или пароль";
     else if (firstField) message = firstField;
+    else if (serverMessage) message = serverMessage;
     else if (status === 401) message = "Нужно войти в аккаунт заново";
     else if (status === 403) message = "Нет доступа";
     else if (status === 404) message = "Не найдено. Возможно, запись уже удалили.";
@@ -124,10 +130,11 @@
   function forUser(data, user) {
     const notes = data.notes || [];
     const variants = data.variants || {};
-    if (!user || user.isTeacher) return { practices: data.practices, tasks: data.tasks, notes, variants };
+    const examStarts = data.examStarts || {};
+    if (!user || user.isTeacher) return { practices: data.practices, tasks: data.tasks, notes, variants, examStarts };
     const practices = data.practices.filter((p) => !Array.isArray(p.classes) || !p.classes.length || p.classes.includes(user.group));
     const ids = new Set(practices.map((p) => p.id));
-    return { practices, tasks: data.tasks.filter((t) => ids.has(t.practice)), notes, variants };
+    return { practices, tasks: data.tasks.filter((t) => ids.has(t.practice)), notes, variants, examStarts };
   }
 
   const state = {
@@ -428,14 +435,19 @@
     async refreshContent() {
       try {
         const isStudent = state.user && !state.user.isTeacher;
-        const [practices, tasks, notes, variants] = await guard(Promise.all([
+        const [practices, tasks, notes, variants, starts] = await guard(Promise.all([
           listAll("practices", { sort: "grade,position,title" }),
           listAll("tasks", { sort: "position" }),
           listAll("notes", { sort: "subject,grade" }).catch(() => []),
           // Варианты ученика считает сервер (ученик не видит список одноклассников).
           isStudent ? request("GET", "api/variants").then((r) => r.variants || {}, () => ({})) : Promise.resolve({}),
+          isStudent ? listAll("exam_starts").catch(() => []) : Promise.resolve([]),
         ]));
-        state.content = forUser({ practices, tasks, notes, variants }, state.user);
+        // Задания начатых контрольных сервер отдаёт только через /api/exam/start — оставляем уже полученные.
+        const examStarts = {};
+        starts.forEach((r) => { if (r.started) examStarts[r.practice] = r.started; });
+        const kept = isStudent ? state.content.tasks.filter((t) => examStarts[t.practice]) : [];
+        state.content = forUser({ practices, tasks: tasks.concat(kept), notes, variants, examStarts }, state.user);
         state.contentError = null;
         storage.set("content", state.content);
         emit("content");
@@ -462,6 +474,33 @@
       state.mySubmissions = [saved].concat(state.mySubmissions);
       emit("submissions");
       return saved;
+    },
+
+    /**
+     * Начать контрольную (begin = true) или продолжить начатую. Сервер запоминает время начала и только теперь
+     * отдаёт задания. → {started, endsAt (null — без ограничения), offset (часы сервера минус часы компьютера), submitted}
+     * или {notStarted: true}, если без begin, а контрольная ещё не начата.
+     */
+    async startExam(practiceId, begin) {
+      const r = await guard(request("POST", "api/exam/start", { body: { practice: practiceId, begin: !!begin } }));
+      const starts = Object.assign({}, state.content.examStarts);
+      if (r.started) starts[practiceId] = r.started; else delete starts[practiceId];
+      state.content.examStarts = starts;
+      state.content.tasks = state.content.tasks.filter((t) => t.practice !== practiceId).concat(r.tasks || []);
+      storage.set("content", state.content);
+      if (!r.started) return { notStarted: true, submitted: !!r.submitted };
+      const started = Content.timeOf(r.started);
+      return {
+        started,
+        endsAt: r.timeLimit > 0 ? started + r.timeLimit * 60000 : null,
+        offset: (Content.timeOf(r.now) || Date.now()) - Date.now(),
+        submitted: !!r.submitted,
+      };
+    },
+
+    /** Учитель разрешает ученику написать контрольную ещё раз: сданная работа удаляется. */
+    resetExam(practiceId, studentId) {
+      return guard(request("POST", "api/exam/reset", { body: { practice: practiceId, student: studentId } }));
     },
 
     /** Обновляет список сданных работ ученика (для прогресса). Ошибки не страшны — останется старый список. */
@@ -505,6 +544,7 @@
       const body = {
         title: p.title.trim(), subject: p.subject, grade: p.grade, position: p.position || 0, published: !!p.published,
         classes: Array.isArray(p.classes) ? p.classes : [], deadline: p.deadline || "",
+        exam: !!p.exam, timeLimit: p.exam ? Math.min(600, Math.max(0, parseInt(p.timeLimit, 10) || 0)) : 0,
       };
       if (!p.id) body.owner = state.user.id; // новая практика принадлежит этому учителю
       const saved = await guard(p.id
@@ -698,6 +738,19 @@
       return { students, submissions };
     },
 
+    /**
+     * Задания от нейросети (YandexGPT) по запросу учителя. Сервер проверяет их, но в практику не сохраняет:
+     * учитель сам выбирает, какие добавить. → {tasks: [{type, text, answer, options, multiple}], dropped, left}
+     */
+    generateTasks(practiceId, prompt, count, types) {
+      return guard(request("POST", "api/generate-tasks", { body: { practice: practiceId, prompt, count, types } }));
+    },
+
+    /** Новый учебный год: все ученики учителя — в следующий класс, 11-е — в выпускники. */
+    newYear(clearDeadlines, clearClassChats) {
+      return guard(request("POST", "api/new-year", { body: { clearDeadlines: !!clearDeadlines, clearClassChats: !!clearClassChats } }));
+    },
+
     resetPassword(userId, password) {
       return guard(request("PATCH", `api/collections/users/records/${safeId(userId)}`, { body: { password, passwordConfirm: password } }));
     },
@@ -749,6 +802,31 @@
     if (classes.length) return classes.includes(group);
     const grade = gradeOf(group);
     return !grade || practice.grade === grade;
+  }
+
+  /** В какой класс ученик перейдёт в новом учебном году: «8А» → «9А», «11Б» → null (выпускник), «Кружок» → «Кружок». */
+  function nextGroup(group) {
+    const m = /^(\d{1,2})(.*)$/.exec(String(group || "").trim());
+    if (!m) return group;
+    const grade = parseInt(m[1], 10);
+    return grade >= 11 ? null : grade >= 1 ? String(grade + 1) + m[2] : group;
+  }
+
+  /** Время с сервера («2026-11-05 10:00:00.000Z») в миллисекундах; пусто или ошибка — 0. */
+  function timeOf(value) {
+    const t = value ? Date.parse(String(value).trim().replace(" ", "T")) : NaN;
+    return isNaN(t) ? 0 : t;
+  }
+
+  /** Контрольная: «Контрольная · 40 мин». */
+  function examLabel(p) {
+    return "Контрольная" + (p.timeLimit > 0 ? ` · ${p.timeLimit} мин` : "");
+  }
+
+  /** Когда ученик увидит результаты контрольной. */
+  function examResultsText(p) {
+    const d = deadlineOf(p);
+    return d && d > new Date() ? `Результаты появятся после срока сдачи — ${formatDay(d)}` : "Результаты появятся, когда учитель проверит работу";
   }
 
   /** Срок сдачи: Date или null. */
@@ -817,6 +895,10 @@
   }
 
   window.Content = {
+    nextGroup,
+    timeOf,
+    examLabel,
+    examResultsText,
     SUBJECTS,
     subjectOf,
     fullTitle,
