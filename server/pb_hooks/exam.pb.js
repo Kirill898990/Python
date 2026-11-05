@@ -25,8 +25,16 @@ routerAdd("POST", "/api/exam/start", (e) => {
   try {
     classes = JSON.parse(practice.getString("classes") || "[]") || []
   } catch (_) {}
-  const visible = practice.getBool("published") && owner !== "" && owner === auth.getString("teacher") &&
-    (!classes.length || classes.indexOf(auth.getString("group")) >= 0)
+  // Контрольная своего учителя для своего класса — или курсовая, для этого ученика курса.
+  let course = false
+  if (practice.getString("enrollment")) {
+    try {
+      const en = e.app.findRecordById("enrollments", practice.getString("enrollment"))
+      course = en.getString("student") === auth.id && en.getBool("active")
+    } catch (_) {}
+  }
+  const visible = practice.getBool("published") && (course || (!practice.getString("enrollment") && owner !== "" &&
+    owner === auth.getString("teacher") && (!classes.length || classes.indexOf(auth.getString("group")) >= 0)))
   if (!visible || !practice.getBool("exam")) throw new NotFoundError("Контрольная не найдена")
 
   const find = () => {

@@ -222,7 +222,12 @@ function fillOwner(e) {
 onRecordCreateRequest(fillOwner, "practices", "notes", "class_codes")
 onRecordCreateRequest((e) => {
   const auth = e.auth
-  if (auth && !e.record.getString("teacher")) {
+  if (e.record.getString("kind") === "course") {
+    // Чат курса — всегда с учителем курса (а не с учителем ученика по школе).
+    try {
+      e.record.set("teacher", e.app.findRecordById("enrollments", e.record.getString("enrollment")).getString("teacher"))
+    } catch (_) {}
+  } else if (auth && !e.record.getString("teacher")) {
     e.record.set("teacher", auth.getBool("isTeacher") ? auth.id : auth.getString("teacher"))
   }
   e.next()
