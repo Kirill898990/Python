@@ -218,6 +218,8 @@
       const total = rows.reduce((sum, r) => sum + r.price, 0);
       const agree = h("input", { type: "checkbox" });
       const message = h("div", { "aria-live": "polite" });
+      // Поставили галочку — убираем напоминание о ней.
+      agree.addEventListener("change", () => { if (agree.checked) replace(message); });
       const payText = `Оплатить ${rub(total)}`;
       const payBtn = button(payText, pay, { cls: "btn-block btn-tall" });
       async function pay() {
