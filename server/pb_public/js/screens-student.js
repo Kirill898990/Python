@@ -167,6 +167,7 @@
       h("p", { class: "muted small" }, Content.AUTHOR),
       formBox,
       h("div", { class: "auth-install" }, installSection()),
+      h("a", { class: "btn btn-outline btn-block mt", href: "#/shop" }, h("span", null, "🐝 Магазин онлайн-курсов beemei")),
       h("a", { class: "policy-link", href: "privacy.html" }, "Политика конфиденциальности"));
   }
 
@@ -269,6 +270,7 @@
       h("img", { class: "banner banner-lab", src: "images/banner-lab.jpg", alt: "" }),
       user && user.isTeacher && menuCard("#/admin/works", "📋", "c-primary", "Панель учителя", "Проверка работ, оценки и задания", true),
       user && Chat.homeCard(),
+      user && !user.isTeacher && Shop.homeCourses(),
       user && user.graduated && graduateCard(user),
       totalPractices > 0 && !(user && user.isTeacher) && !user.graduated && h("div", { class: "card" },
         h("div", { class: "card-title" }, submitted === totalPractices ? "Все практики сданы! 🎉" : "Твой прогресс" + (myGrade ? ` · ${myGrade} класс` : "")),
@@ -281,6 +283,7 @@
       menuCard("#/theory", "📚", "c-secondary", "Теоретическая часть", "Учебники ЯКласса по классам"),
       menuCard("#/reference", "🧪", "c-chemistry", "Справочник", "Таблица Менделеева и таблица растворимости"),
       menuCard("#/trainer", "🎯", "c-secondary", "Тренажёр", "Бесконечные задания с проверкой: формулы, массы, уравнения"),
+      user && !user.isTeacher && menuCard("#/shop", "🐝", "c-chemistry", "Магазин beemei", "Личные курсы подготовки к ОГЭ и ЕГЭ"),
       h("img", { class: "banner banner-people", src: "images/scientists.jpg", alt: "" }),
       h("div", { class: "footer" },
         h("div", { class: "card-title" }, Content.AUTHOR),
@@ -532,8 +535,14 @@
   /** Контрольные, которые сейчас отправляются (чтобы не отправить одну работу дважды). */
   const examSending = new Set();
 
+  /** Куда вернуться из практики: практика курса — к курсу, остальные — к списку предмета. */
+  function practiceBack(p) {
+    const teacher = Api.state.user && Api.state.user.isTeacher;
+    return p.enrollment ? (teacher ? "admin/course/" : "course/") + p.enrollment : `subject/${p.subject}`;
+  }
+
   function examTopBar(p) {
-    return topBar(`${Content.subjectOf(p.subject).title} · ${p.grade} класс`, () => App.back(`subject/${p.subject}`));
+    return topBar(`${Content.subjectOf(p.subject).title} · ${p.grade} класс`, () => App.back(practiceBack(p)));
   }
 
   /**
@@ -913,6 +922,7 @@
           replace(resultBox, feedback("Сначала ответь хотя бы на одно задание.", "error"));
           return;
         }
+        if (last && !(await confirm("Сдать ещё раз?", "Работа уже у учителя. Если ты исправил ответы, учитель получит новую работу.", "Сдать ещё раз"))) return;
         sending = true;
         sendBtn.disabled = true;
         replace(sendBtn, h("span", { class: "spinner spinner-sm" }), h("span", null, "Отправляем…"));
@@ -1018,7 +1028,7 @@
     };
 
     const screen = h("div", { class: "screen" },
-      topBar(`${Content.subjectOf(p.subject).title} · ${p.grade} класс`, () => App.back(`subject/${p.subject}`),
+      topBar(`${Content.subjectOf(p.subject).title} · ${p.grade} класс`, () => App.back(practiceBack(p)),
         h("button", { class: "icon-btn", type: "button", "aria-label": "Справочник", title: "Таблица Менделеева и растворимости", onclick: () => App.go("reference") }, icon("book")),
         !exam && menuButton([{ label: "Начать заново", onclick: reset }])),
       timerEl,

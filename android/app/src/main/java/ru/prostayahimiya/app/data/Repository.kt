@@ -402,6 +402,8 @@ class Repository(private val context: Context) {
             put("timeLimit", if (practice.exam) practice.timeLimit.coerceIn(0, 600) else 0)
             // Новая практика принадлежит этому учителю.
             if (practice.id.isEmpty()) put("owner", _user.value?.id.orEmpty())
+            // Практика для одного ученика курса.
+            if (practice.id.isEmpty() && practice.enrollment.isNotBlank()) put("enrollment", practice.enrollment)
         }
         val saved = save("practices", practice.id, body, Practice.serializer())
         _content.value = _content.value.copy(practices = _content.value.practices.filter { it.id != saved.id } + saved)
@@ -438,8 +440,23 @@ class Repository(private val context: Context) {
         _content.value = _content.value.copy(tasks = _content.value.tasks.filter { it.id != id })
     }.getOrThrow()
 
+    /** Ученики учителя по школе (ученики его курсов сюда не попадают — они во вкладке «Курсы»). */
     suspend fun students(): List<User> = guard {
-        api.listAll("users", User.serializer(), filter = "isTeacher = false", sort = "group,name")
+        val me = _user.value?.id.orEmpty()
+        api.listAll("users", User.serializer(), filter = "isTeacher = false && teacher = \"${safeId(me)}\"", sort = "group,name")
+    }.getOrThrow()
+
+    /** Купленные курсы: у ученика — свои, у учителя — его ученики курсов (магазин beemei на сайте). */
+    suspend fun enrollments(): List<Enrollment> = guard {
+        api.listAll("enrollments", Enrollment.serializer(), sort = "-created", expand = "student,teacher")
+    }.getOrThrow()
+
+    suspend fun enrollment(id: String): Enrollment = guard {
+        api.call(
+            "GET",
+            api.url("api/collections/enrollments/records/${safeId(id)}", mapOf("expand" to "student,teacher")),
+            Enrollment.serializer(),
+        )
     }.getOrThrow()
 
     suspend fun resetPassword(userId: String, newPassword: String) = guard {
@@ -461,6 +478,10 @@ class Repository(private val context: Context) {
 
     /** Адрес страницы приложения на сайте, где можно скачать новую версию. */
     val appPageUrl: String get() = BuildConfig.SERVER_URL.trimEnd('/') + "/app/"
+
+    /** Страница курса в магазине beemei на сайте (купить и продлить курс можно только на сайте). */
+    fun shopProductUrl(productId: String): String =
+        BuildConfig.SERVER_URL.trimEnd('/') + if (productId.isBlank()) "/#/shop" else "/#/shop/product/$productId"
 
     suspend fun checkForUpdate() {
         if (installedFromRuStore()) return
@@ -573,9 +594,11 @@ class Repository(private val context: Context) {
         if (created > prefs.getString(room.id, "").orEmpty()) prefs.edit { putString(room.id, created) }
     }
 
-    private fun roomFilter(room: ChatRoom): String =
-        if (room.isClass) "kind = \"class\" && group = ${quote(room.key)}"
-        else "kind = \"private\" && student = \"${safeId(room.key)}\""
+    private fun roomFilter(room: ChatRoom): String = when {
+        room.isClass -> "kind = \"class\" && group = ${quote(room.key)}"
+        room.isCourse -> "kind = \"course\" && enrollment = \"${safeId(room.key)}\""
+        else -> "kind = \"private\" && student = \"${safeId(room.key)}\""
+    }
 
     /** Последние [limit] сообщений комнаты (старые сверху) и есть ли более ранние. */
     suspend fun messages(room: ChatRoom, limit: Int): Pair<List<Message>, Boolean> = guard {
@@ -601,10 +624,12 @@ class Repository(private val context: Context) {
                     put("author", me.id)
                     put("authorName", me.name)
                     put("fromTeacher", me.isTeacher)
-                    put("teacher", if (me.isTeacher) me.id else me.teacher)
+                    // В чате курса учителя подставит сервер (это учитель курса, а не учитель по школе).
+                    put("teacher", if (me.isTeacher) me.id else if (room.isCourse) "" else me.teacher)
                     put("kind", room.kind)
                     put("group", if (room.isClass) room.key else "")
-                    put("student", if (room.isClass) "" else room.key)
+                    put("student", if (room.kind == ChatRoom.PRIVATE) room.key else "")
+                    put("enrollment", if (room.isCourse) room.key else "")
                     put("text", text.trim())
                 },
             )
@@ -782,15 +807,20 @@ class Repository(private val context: Context) {
         var reminded: Set<String>? = null
         if (!me.isTeacher && !me.graduated) {
             // Новые практики и контрольные своего класса.
+            // Практики класса и практики курсов ученика.
             val practices = api.listAll("practices", Practice.serializer())
-                .filter { it.published && it.isFor(me.group) && it.isAssignedTo(me.group) }
+                .filter { it.published && (it.enrollment.isNotBlank() || (it.isFor(me.group) && it.isAssignedTo(me.group))) }
             val before = p.getStringSet("known", null)
             if (before != null) {
                 practices.filter { it.id !in before }.forEach { pr ->
                     notices += Notice(
                         NoticeChannel.PRACTICES,
                         "practice-${pr.id}",
-                        if (pr.exam) "Новая контрольная" else "Новая практика",
+                        when {
+                            pr.enrollment.isNotBlank() -> "Новое задание в подготовке"
+                            pr.exam -> "Новая контрольная"
+                            else -> "Новая практика"
+                        },
                         pr.fullTitle + (pr.deadlineInstant?.let { " · сдать до ${formatDay(it)}" } ?: ""),
                         "practice/${pr.id}",
                     )
@@ -852,13 +882,18 @@ class Repository(private val context: Context) {
         val messages = fresh("messages", "messages", "created", "author != \"${me.id}\"", Message.serializer()) { it.created }
         if (messages.isNotEmpty()) {
             val last = messages.first()
-            val where = if (last.kind == ChatRoom.CLASS) "чат ${last.group}" else "личное сообщение"
+            val where = when (last.kind) {
+                ChatRoom.CLASS -> "чат ${last.group}"
+                ChatRoom.COURSE -> "чат курса"
+                else -> "личное сообщение"
+            }
             notices += Notice(
                 NoticeChannel.CHAT,
                 "chat",
                 if (messages.size == 1) "${last.authorName} · $where" else "Новые сообщения: ${messages.size}",
                 if (messages.size == 1) last.text else "${last.authorName}: ${last.text}",
-                "chats",
+                // Сообщение из чата курса открывает курс (там кнопка чата), остальные — список чатов.
+                if (last.kind == ChatRoom.COURSE) (if (me.isTeacher) "admin/course/" else "course/") + last.enrollment else "chats",
             )
         }
 

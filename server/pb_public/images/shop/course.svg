@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="600" viewBox="0 0 600 600">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffe066"/><stop offset="1" stop-color="#ffb000"/>
+    </linearGradient>
+  </defs>
+  <rect width="600" height="600" rx="48" fill="url(#bg)"/>
+  <circle cx="470" cy="120" r="70" fill="#fff4c2" opacity="0.6"/>
+  <circle cx="110" cy="500" r="90" fill="#fff4c2" opacity="0.45"/>
+  <!-- книга -->
+  <path d="M120 360 L300 330 L480 360 L480 470 L300 440 L120 470 Z" fill="#187a5f"/>
+  <path d="M300 330 L300 440" stroke="#0f5c47" stroke-width="6"/>
+  <path d="M140 372 L290 346 M140 398 L290 372 M310 346 L460 372 M310 372 L460 398" stroke="#b8efd9" stroke-width="5" stroke-linecap="round"/>
+  <!-- колба -->
+  <path d="M262 120 h76 v16 h-10 v60 l64 112 c8 14 -2 32 -18 32 H226 c-16 0 -26 -18 -18 -32 l64 -112 v-60 h-10 z" fill="#ffffff" stroke="#2b2100" stroke-width="8" stroke-linejoin="round"/>
+  <path d="M228 300 l40 -70 h64 l40 70 c4 8 -2 16 -10 16 H238 c-8 0 -14 -8 -10 -16 z" fill="#2fb383"/>
+  <circle cx="285" cy="270" r="10" fill="#b8efd9"/><circle cx="318" cy="290" r="7" fill="#b8efd9"/>
+  <!-- лист -->
+  <path d="M420 250 c30 -60 90 -60 110 -50 c-10 50 -60 80 -110 50 z" fill="#3aa35a"/>
+  <path d="M420 250 c30 -20 60 -35 96 -44" stroke="#1f6b35" stroke-width="5" fill="none" stroke-linecap="round"/>
+  <text x="300" y="545" text-anchor="middle" font-family="Roboto, Arial, sans-serif" font-size="56" font-weight="900" fill="#2b2100">ОГЭ · ЕГЭ</text>
+</svg>

@@ -817,6 +817,22 @@ private fun TaskCard(label: String, solved: Boolean = false, content: @Composabl
 
 @Composable
 private fun SubmitCard(vm: PracticeViewModel, onOpenCabinet: () -> Unit) {
+    // Работа уже у учителя — переспрашиваем, чтобы случайные нажатия не присылали копии.
+    var confirmResend by rememberSaveable { mutableStateOf(false) }
+    if (confirmResend) {
+        AlertDialog(
+            onDismissRequest = { confirmResend = false },
+            title = { Text("Сдать ещё раз?") },
+            text = { Text("Работа уже у учителя. Если ты исправил ответы, учитель получит новую работу.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmResend = false
+                    vm.submit()
+                }) { Text("Сдать ещё раз") }
+            },
+            dismissButton = { TextButton(onClick = { confirmResend = false }) { Text("Отмена") } },
+        )
+    }
     TaskCard("Сдать работу") {
         val last = vm.lastSubmission
         if (last != null) {
@@ -851,7 +867,7 @@ private fun SubmitCard(vm: PracticeViewModel, onOpenCabinet: () -> Unit) {
             )
         }
         Button(
-            onClick = vm::submit,
+            onClick = { if (last != null) confirmResend = true else vm.submit() },
             enabled = vm.sendState !is SendState.Sending,
             modifier = Modifier.fillMaxWidth(),
         ) {

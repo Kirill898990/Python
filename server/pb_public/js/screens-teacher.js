@@ -18,11 +18,12 @@
 
   // ======================= Панель учителя =======================
   function admin(params) {
-    const tab = ["works", "journal", "tasks", "students"].includes(params.tab) ? params.tab : "works";
+    const tab = ["works", "journal", "tasks", "students", "courses"].includes(params.tab) ? params.tab : "works";
     const tabs = h("nav", { class: "tabs" },
-      [["works", "Работы"], ["journal", "Журнал"], ["tasks", "Задания"], ["students", "Ученики"]].map(([key, title]) =>
+      [["works", "Работы"], ["journal", "Журнал"], ["tasks", "Задания"], ["students", "Ученики"], ["courses", "Курсы"]].map(([key, title]) =>
         h("a", { class: "tab" + (key === tab ? " selected" : ""), href: `#/admin/${key}`, "aria-current": key === tab ? "page" : null }, title)));
-    const body = tab === "works" ? works() : tab === "journal" ? journal() : tab === "tasks" ? practices() : students();
+    const body = tab === "works" ? works() : tab === "journal" ? journal() : tab === "tasks" ? practices()
+      : tab === "courses" ? Shop.teacherList() : students();
     return h("div", { class: "screen" }, topBar("Панель учителя", () => App.back("")), tabs, body);
   }
 
@@ -417,10 +418,14 @@
     if (id && !original) {
       return h("div", { class: "screen" }, topBar("Редактор практики", () => App.back("admin/tasks")), emptyBox("🗂️", "Практика не найдена"));
     }
+    // Практика для одного ученика курса (из «Мои курсы»).
+    const enrollment = original ? original.enrollment || "" : params.enrollment || "";
+    const backTo = enrollment ? `admin/course/${enrollment}` : "admin/tasks";
     const form = {
+      enrollment,
       title: original ? original.title : "",
-      subject: original ? original.subject : "chemistry",
-      grade: original ? original.grade : 8,
+      subject: original ? original.subject : params.subject || "chemistry",
+      grade: original ? original.grade : params.grade || 8,
       published: original ? original.published : false,
       position: original ? original.position : 0,
       classes: original && Array.isArray(original.classes) ? original.classes.slice() : [],
@@ -903,15 +908,16 @@
 
     renderTasks();
     return h("div", { class: "screen" },
-      topBar(id ? "Редактор практики" : "Новая практика", () => App.back("admin/tasks")),
+      topBar(id ? "Редактор практики" : enrollment ? "Практика для ученика курса" : "Новая практика", () => App.back(backTo)),
+      enrollment && h("p", { class: "small muted" }, "Эту практику увидит только ученик курса."),
       h("div", { class: "card stack" },
         field({ label: "Название практики", placeholder: "Практика по химии", value: form.title, oninput: (v) => { form.title = v; } }),
         h("div", { class: "small bold" }, "Предмет"),
         segmented([{ value: "chemistry", label: "⚗️ Химия" }, { value: "biology", label: "🧬 Биология" }], form.subject, (v) => { form.subject = v; }),
         h("div", { class: "small bold" }, "Класс"),
         gradeChips,
-        h("div", { class: "small bold" }, "Для каких классов"),
-        classChips,
+        !enrollment && h("div", { class: "small bold" }, "Для каких классов"),
+        !enrollment && classChips,
         h("div", { class: "small bold" }, "Срок сдачи (необязательно)"),
         h("div", { class: "row" }, deadlineInput, clearDeadline),
         h("div", { class: "row" },

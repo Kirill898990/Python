@@ -106,10 +106,23 @@ import ru.prostayahimiya.app.ui.components.cardColors
 /** Создание и редактирование практики и её заданий (только для учителя). */
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
-fun PracticeEditorScreen(practiceId: String, repository: Repository, onBack: () -> Unit) {
+fun PracticeEditorScreen(
+    practiceId: String,
+    repository: Repository,
+    onBack: () -> Unit,
+    /** Новая практика для одного ученика курса: id записи курса, предмет и класс по экзамену. */
+    enrollment: String = "",
+    newSubject: String = "",
+    newGrade: Int = 0,
+) {
     val content by repository.content.collectAsState()
     var currentId by rememberSaveable { mutableStateOf(if (practiceId == NEW) "" else practiceId) }
-    val original = content.practice(currentId) ?: Practice(grade = 8)
+    val original = content.practice(currentId) ?: Practice(
+        grade = newGrade.takeIf { it > 0 } ?: 8,
+        subject = newSubject.ifBlank { Practice().subject },
+        enrollment = enrollment,
+    )
+    val forCourse = original.enrollment.isNotBlank()
 
     var title by rememberSaveable(currentId) { mutableStateOf(original.title) }
     var subject by rememberSaveable(currentId) { mutableStateOf(original.subject) }
@@ -178,7 +191,7 @@ fun PracticeEditorScreen(practiceId: String, repository: Repository, onBack: () 
 
     Scaffold(
         topBar = {
-            BackTopBar(if (currentId.isEmpty()) "Новая практика" else "Редактор практики", onBack) {
+            BackTopBar(if (currentId.isNotEmpty()) "Редактор практики" else if (forCourse) "Практика для ученика курса" else "Новая практика", onBack) {
                 TextButton(onClick = ::savePractice, enabled = changed && title.isNotBlank() && !busy) { Text("Сохранить") }
             }
         },
@@ -224,15 +237,23 @@ fun PracticeEditorScreen(practiceId: String, repository: Repository, onBack: () 
                                 FilterChip(selected = grade == g, onClick = { grade = g }, label = { Text("$g") })
                             }
                         }
-                        Text("Для каких классов", style = MaterialTheme.typography.labelLarge)
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilterChip(selected = classes.isEmpty(), onClick = { classes = emptyList() }, label = { Text("Все классы") })
-                            knownClasses.forEach { g ->
-                                FilterChip(
-                                    selected = g in classes,
-                                    onClick = { classes = if (g in classes) classes - g else (classes + g).sorted() },
-                                    label = { Text(g) },
-                                )
+                        if (forCourse) {
+                            Text(
+                                "Эту практику увидит только ученик курса.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        } else {
+                            Text("Для каких классов", style = MaterialTheme.typography.labelLarge)
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                FilterChip(selected = classes.isEmpty(), onClick = { classes = emptyList() }, label = { Text("Все классы") })
+                                knownClasses.forEach { g ->
+                                    FilterChip(
+                                        selected = g in classes,
+                                        onClick = { classes = if (g in classes) classes - g else (classes + g).sorted() },
+                                        label = { Text(g) },
+                                    )
+                                }
                             }
                         }
                         Text("Срок сдачи (необязательно)", style = MaterialTheme.typography.labelLarge)

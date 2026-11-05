@@ -77,11 +77,29 @@ routerAdd("POST", "/api/check", (e) => {
 }, $apis.requireAuth("users"))
 
 onRecordCreateRequest((e) => {
-  const { Chem, taskData, hasInput } = require(`${__hooks}/lib.js`)
+  const { Chem, taskData, hasInput, timeOf } = require(`${__hooks}/lib.js`)
   let answers = []
   try {
     answers = JSON.parse(e.record.getString("answers") || "[]") || []
   } catch (_) {}
+
+  // Ту же самую работу прислали ещё раз в течение 2 минут (несколько нажатий, медленный интернет) —
+  // новую копию не создаём, а отвечаем уже сохранённой работой.
+  if (!e.hasSuperuserAuth()) {
+    const sig = (list) => (Array.isArray(list) ? list : [])
+      .map((a) => (a && (a.task || a.prompt || "")) + "\u0001" + (a ? String(a.input == null ? a.answer || "" : a.input) : ""))
+      .join("\u0002")
+    try {
+      const last = e.app.findRecordsByFilter("submissions", "student = {:s} && practice = {:p}", "-created", 1, 0,
+        { s: e.record.getString("student"), p: e.record.getString("practice") })[0]
+      let lastAnswers = []
+      try {
+        lastAnswers = JSON.parse(last.getString("answers") || "[]") || []
+      } catch (_) {}
+      const fresh = Date.now() - timeOf(last.getString("created")) < 2 * 60 * 1000
+      if (fresh && sig(lastAnswers) === sig(answers)) return e.json(200, last)
+    } catch (_) {}
+  }
   // Старое приложение (1.0) не присылает номера заданий — тогда оставляем его подсчёт.
   if (Array.isArray(answers) && answers.some((a) => a && a.task)) {
     const student = e.record.getString("student")
@@ -204,7 +222,12 @@ function fillOwner(e) {
 onRecordCreateRequest(fillOwner, "practices", "notes", "class_codes")
 onRecordCreateRequest((e) => {
   const auth = e.auth
-  if (auth && !e.record.getString("teacher")) {
+  if (e.record.getString("kind") === "course") {
+    // Чат курса — всегда с учителем курса (а не с учителем ученика по школе).
+    try {
+      e.record.set("teacher", e.app.findRecordById("enrollments", e.record.getString("enrollment")).getString("teacher"))
+    } catch (_) {}
+  } else if (auth && !e.record.getString("teacher")) {
     e.record.set("teacher", auth.getBool("isTeacher") ? auth.id : auth.getString("teacher"))
   }
   e.next()

@@ -13,14 +13,25 @@
     { pattern: /^subject\/(chemistry|biology)$/, screen: (m) => Screens.subject({ subject: m[1] }), name: "subject" },
     { pattern: /^theory$/, screen: () => Screens.theory(), name: "theory" },
     { pattern: /^trainer$/, screen: () => Trainer.screen(), name: "trainer" },
+    { pattern: /^shop$/, screen: () => Shop.catalog(), name: "shop", open: true },
+    { pattern: /^shop\/product\/([a-z0-9]+)$/, screen: (m) => Shop.product({ id: m[1] }), name: "shop-product", open: true },
+    { pattern: /^shop\/cart$/, screen: () => Shop.cart(), name: "shop-cart", open: true },
+    { pattern: /^shop\/checkout$/, screen: () => Shop.checkout(), name: "shop-checkout", open: true },
+    { pattern: /^shop\/order\/([a-z0-9]+)$/, screen: (m) => Shop.order({ id: m[1] }), name: "shop-order" },
+    { pattern: /^course\/([a-z0-9]+)$/, screen: (m) => Shop.course({ id: m[1] }), name: "course" },
+    { pattern: /^admin\/course\/([a-z0-9]+)$/, screen: (m) => Shop.teacherCourse({ id: m[1] }), name: "teacher-course", teacher: true },
+    { pattern: /^admin\/course\/([a-z0-9]+)\/new\/(chemistry|biology)\/(\d{1,2})$/,
+      screen: (m) => Teacher.editor({ id: "new", enrollment: m[1], subject: m[2], grade: +m[3] }), name: "editor", teacher: true },
     { pattern: /^practice\/([a-z0-9]+)$/, screen: (m) => Screens.practice({ id: m[1] }), name: "practice" },
     { pattern: /^cabinet$/, screen: () => Screens.cabinet(), name: "cabinet" },
     { pattern: /^submission\/([a-z0-9]+)$/, screen: (m) => Screens.submission({ id: m[1] }), name: "submission" },
     { pattern: /^chats$/, screen: () => Chat.list(), name: "chats" },
     { pattern: /^reference(?:\/(solubility))?$/, screen: (m) => ReferenceScreen.screen({ tab: m[1] }), name: "reference" },
-    { pattern: /^chat\/(class|private)\/([^/]{1,40})$/, screen: (m) => Chat.room({ kind: m[1], key: m[2] }), name: "chat" },
+    { pattern: /^chat\/(class|private|course)\/([^/]{1,40})$/, screen: (m) => Chat.room({ kind: m[1], key: m[2] }), name: "chat" },
+    { pattern: /^shop\/info$/, screen: () => Shop.info(), name: "shop-info", open: true },
+    { pattern: /^shop\/offer$/, screen: () => Shop.offer(), name: "shop-offer", open: true },
     { pattern: /^admin\/practice\/([a-z0-9]+)$/, screen: (m) => Teacher.editor({ id: m[1] }), name: "editor", teacher: true },
-    { pattern: /^admin(?:\/(works|journal|tasks|students))?$/, screen: (m) => Teacher.admin({ tab: m[1] }), name: "admin", teacher: true },
+    { pattern: /^admin(?:\/(works|journal|tasks|students|courses))?$/, screen: (m) => Teacher.admin({ tab: m[1] }), name: "admin", teacher: true },
   ];
 
   let current = null;
@@ -32,7 +43,20 @@
   function render() {
     const user = Api.state.user;
     let screen;
-    if (!user) {
+    // После входа — туда, откуда отправили входить (например, к оплате корзины).
+    const next = user && Api.storage.get("afterLogin", "");
+    if (next) {
+      Api.storage.remove("afterLogin");
+      App.replace(next);
+      return;
+    }
+    // Магазин и его документы открываются и без входа (так их видят покупатели и проверка ЮKassa).
+    const p0 = path();
+    const openRoute = !user && routes.find((r) => r.open && r.pattern.test(p0));
+    if (openRoute) {
+      current = openRoute.name;
+      screen = openRoute.screen(p0.match(openRoute.pattern));
+    } else if (!user) {
       current = "auth";
       screen = Screens.auth();
     } else if (user.wantsTeacher && !user.isTeacher) {

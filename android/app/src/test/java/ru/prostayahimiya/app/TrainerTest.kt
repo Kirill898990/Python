@@ -44,6 +44,20 @@ class TrainerTest {
         assertEquals("wrong", Trainer.check(classes, "4").kind)
     }
 
+    @Test fun biologyQuestionsAreShuffledAndChecked() {
+        TrainerData.biology.forEach { (q, options, explain) ->
+            assertEquals(q, 4, options.toSet().size)
+            assertTrue(q, explain.isNotBlank())
+        }
+        val trainer = Trainer(Random(7))
+        repeat(20) {
+            val t = trainer.next(TrainerTopic.BIOLOGY) as TrainerTask.Quiz
+            val right = TrainerData.biology.first { it.first == t.question }.second[0]
+            assertEquals(right, t.options[t.answer - 1])
+            assertTrue(Trainer.check(t, t.answer.toString()).isCorrect)
+        }
+    }
+
     @Test fun noRepeatsInARow() {
         val trainer = Trainer(Random(1))
         val seen = List(10) { trainer.next(TrainerTopic.FORMULA) }

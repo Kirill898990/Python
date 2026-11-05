@@ -34,6 +34,8 @@ import ru.prostayahimiya.app.ui.home.HomeScreen
 import ru.prostayahimiya.app.ui.practice.PracticeScreen
 import ru.prostayahimiya.app.ui.reference.ReferenceScreen
 import ru.prostayahimiya.app.ui.subject.SubjectScreen
+import ru.prostayahimiya.app.ui.course.StudentCourseScreen
+import ru.prostayahimiya.app.ui.course.TeacherCourseScreen
 import ru.prostayahimiya.app.ui.theory.TheoryScreen
 import ru.prostayahimiya.app.ui.trainer.TrainerScreen
 
@@ -81,6 +83,7 @@ fun AppNavigation(repository: Repository) {
                 onOpenPractice = { id -> nav.navigate("practice/$id") },
                 onOpenReference = { nav.navigate("reference") },
                 onOpenTrainer = { nav.navigate("trainer") },
+                onOpenCourse = { id -> nav.navigate("course/$id") },
             )
         }
         composable("chats") {
@@ -97,7 +100,7 @@ fun AppNavigation(repository: Repository) {
             val kind = entry.arguments?.getString("kind").orEmpty()
             val key = entry.arguments?.getString("key").orEmpty()
             ChatScreen(
-                room = ChatRoom(if (kind == ChatRoom.PRIVATE) ChatRoom.PRIVATE else ChatRoom.CLASS, key),
+                room = ChatRoom.of(kind, key),
                 title = entry.arguments?.getString("title").orEmpty(),
                 repository = repository,
                 onBack = dropUnlessResumed { nav.popBackStack() },
@@ -160,20 +163,57 @@ fun AppNavigation(repository: Repository) {
                         val title = if (student.group.isNotBlank()) "${student.name}, ${student.group}" else student.name
                         nav.navigate(chatRoute(ChatRoom.private(student.id), title))
                     },
+                    onOpenCourse = { id -> nav.navigate("admin/course/$id") },
                 )
             }
         }
-        composable("admin/practice/{id}") { entry ->
+        composable(
+            "admin/practice/{id}?enrollment={enrollment}&subject={subject}&grade={grade}",
+            arguments = listOf(
+                navArgument("enrollment") { type = NavType.StringType; defaultValue = "" },
+                navArgument("subject") { type = NavType.StringType; defaultValue = "" },
+                navArgument("grade") { type = NavType.IntType; defaultValue = 0 },
+            ),
+        ) { entry ->
             TeacherOnly(user?.isTeacher == true, onBack = dropUnlessResumed { nav.popBackStack() }) {
                 PracticeEditorScreen(
                     practiceId = entry.arguments?.getString("id").orEmpty(),
                     repository = repository,
                     onBack = dropUnlessResumed { nav.popBackStack() },
+                    enrollment = entry.arguments?.getString("enrollment").orEmpty(),
+                    newSubject = entry.arguments?.getString("subject").orEmpty(),
+                    newGrade = entry.arguments?.getInt("grade") ?: 0,
+                )
+            }
+        }
+        // Курс ученика (купленный в магазине beemei на сайте).
+        composable("course/{id}") { entry ->
+            StudentCourseScreen(
+                enrollmentId = entry.arguments?.getString("id").orEmpty(),
+                repository = repository,
+                onBack = dropUnlessResumed { nav.popBackStack() },
+                onOpenPractice = { id -> nav.navigate("practice/$id") },
+                onOpenChat = { room, title -> nav.navigate(chatRoute(room, title)) },
+                onOpenTrainer = { nav.navigate("trainer") },
+            )
+        }
+        composable("admin/course/{id}") { entry ->
+            TeacherOnly(user?.isTeacher == true, onBack = dropUnlessResumed { nav.popBackStack() }) {
+                TeacherCourseScreen(
+                    enrollmentId = entry.arguments?.getString("id").orEmpty(),
+                    repository = repository,
+                    onBack = dropUnlessResumed { nav.popBackStack() },
+                    onOpenChat = { room, title -> nav.navigate(chatRoute(room, title)) },
+                    onEditPractice = { id -> nav.navigate("admin/practice/$id") },
+                    onNewPractice = { en -> nav.navigate("admin/practice/$NEW_PRACTICE?enrollment=${en.id}&subject=${en.subject}&grade=${en.grade}") },
+                    onOpenSubmission = { id -> nav.navigate("submission/$id") },
                 )
             }
         }
     }
 }
+
+private const val NEW_PRACTICE = ru.prostayahimiya.app.ui.admin.NEW
 
 /** Адрес экрана переписки. Класс и имя могут быть по-русски, поэтому кодируем их. */
 private fun chatRoute(room: ChatRoom, title: String) =

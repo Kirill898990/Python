@@ -262,9 +262,11 @@ private fun TaskCard(task: TrainerTask, onCorrect: () -> Unit, onMiss: () -> Uni
                         }
                     }
                 }
-                is TrainerTask.Classify -> {
-                    Text(task.question, style = MaterialTheme.typography.bodyLarge)
-                    task.options.forEachIndexed { i, option ->
+                is TrainerTask.Classify, is TrainerTask.Quiz -> {
+                    val question = if (task is TrainerTask.Quiz) task.question else (task as TrainerTask.Classify).question
+                    val options = if (task is TrainerTask.Quiz) task.options else (task as TrainerTask.Classify).options
+                    Text(question, style = MaterialTheme.typography.bodyLarge)
+                    options.forEachIndexed { i, option ->
                         val n = (i + 1).toString()
                         val selected = text == n
                         val shape = RoundedCornerShape(12.dp)

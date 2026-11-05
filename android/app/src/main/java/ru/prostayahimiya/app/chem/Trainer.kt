@@ -15,6 +15,7 @@ enum class TrainerTopic(val title: String) {
     MOLAR("⚖️ Молярная масса"),
     EQUATION("⚗️ Уравнения"),
     CLASSES("🗂️ Классы веществ"),
+    BIOLOGY("🧬 Биология"),
     ;
 
     val label: String
@@ -23,6 +24,7 @@ enum class TrainerTopic(val title: String) {
             MOLAR -> "Вычисли молярную массу"
             EQUATION -> "Расставь коэффициенты"
             CLASSES -> "Определи класс вещества"
+            BIOLOGY -> "Ответь на вопрос по биологии"
             MIX -> ""
         }
 }
@@ -42,6 +44,11 @@ sealed interface TrainerTask {
 
     data class Balance(val equation: Equation, override val explain: String) : TrainerTask {
         override val topic get() = TrainerTopic.EQUATION
+    }
+
+    /** Вопрос по биологии с вариантами ответа. [answer] — номер верного варианта (с 1). */
+    data class Quiz(val question: String, val options: List<String>, val answer: Int, override val explain: String) : TrainerTask {
+        override val topic get() = TrainerTopic.BIOLOGY
     }
 
     data class Classify(val formula: String, val answer: Int, override val explain: String) : TrainerTask {
@@ -80,6 +87,12 @@ class Trainer(private val random: Random = Random.Default) {
                 val (text, coefficients) = pick("e", TrainerData.equations)
                 val equation = Equation.parse(text)!!
                 TrainerTask.Balance(equation, equation.pretty(coefficients))
+            }
+            TrainerTopic.BIOLOGY -> {
+                // Первый вариант в данных — верный; показываем варианты в случайном порядке.
+                val (question, options, explain) = pick("b", TrainerData.biology)
+                val order = options.indices.shuffled(random)
+                TrainerTask.Quiz(question, order.map { options[it] }, order.indexOf(0) + 1, "${options[0]}. $explain")
             }
             else -> {
                 val (formula, cls) = pick("c", TrainerData.classes)
@@ -132,6 +145,11 @@ class Trainer(private val random: Random = Random.Default) {
                     "Пока не сходится:\n" + r.mismatches.joinToString("\n") { "• ${it.element}: слева ${it.left}, справа ${it.right}" },
                 )
                 is EquationCheck.Invalid -> TrainerResult("hint", r.message)
+            }
+            is TrainerTask.Quiz -> when (input.toIntOrNull()) {
+                null -> TrainerResult("hint", "Выбери ответ")
+                task.answer -> TrainerResult("correct", "Верно! ${task.explain}")
+                else -> TrainerResult("wrong", "Неверно. Подумай ещё")
             }
             is TrainerTask.Classify -> when (input.toIntOrNull()) {
                 null -> TrainerResult("hint", "Выбери ответ")

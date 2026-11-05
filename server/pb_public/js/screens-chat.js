@@ -31,6 +31,7 @@
   }
 
   function roomPath(room) {
+    if (room.kind === "course") return `chat/course/${room.enrollment}`;
     return room.kind === "class"
       ? `chat/class/${encodeURIComponent(room.group)}`
       : `chat/private/${room.student}`;
@@ -83,13 +84,16 @@
   // ======================= Переписка =======================
   function room(params) {
     const user = Api.state.user;
-    const r = params.kind === "class" ? { kind: "class", group: params.key } : { kind: "private", student: params.key };
+    const r = params.kind === "class" ? { kind: "class", group: params.key }
+      : params.kind === "course" ? { kind: "course", enrollment: params.key } : { kind: "private", student: params.key };
     const key = Api.roomKey(r);
-    const defaultTitle = r.kind === "class"
-      ? (user.isTeacher ? `${r.group} класс` : `Чат класса ${r.group}`)
-      : (user.isTeacher ? "Ученик" : "Учитель");
+    const defaultTitle = r.kind === "course" ? (user.isTeacher ? "Ученик курса" : "Учитель курса")
+      : r.kind === "class"
+        ? (user.isTeacher ? `${r.group} класс` : `Чат класса ${r.group}`)
+        : (user.isTeacher ? "Ученик" : "Учитель");
     const title = titles.get(key) || defaultTitle;
-    const header = topBar(title, () => App.back("chats"));
+    const back = r.kind === "course" ? (user.isTeacher ? `admin/course/${r.enrollment}` : `course/${r.enrollment}`) : "chats";
+    const header = topBar(title, () => App.back(back));
     if (user.isTeacher && r.kind === "private" && !titles.has(key)) {
       Api.students().then((all) => {
         const st = all.find((s) => s.id === r.student);
@@ -143,7 +147,9 @@
         children.push(bubble(m));
       });
       if (!messages.length) {
-        children.push(emptyBox("💬", r.kind === "class"
+        children.push(emptyBox("💬", r.kind === "course"
+          ? (user.isTeacher ? "Напишите ученику курса первым" : "Задай учителю курса вопрос — переписку видите только вы двое")
+          : r.kind === "class"
           ? "Здесь пока пусто. Напиши первое сообщение классу!"
           : user.isTeacher ? "Напишите ученику первым" : "Задай учителю вопрос — его увидит только учитель"));
       }

@@ -26,5 +26,9 @@ D.classes.forEach(([f, c]) => {
   if (!Chem.parse(Chem.normalize(f)).ok) errors.push(`класс: формула не разбирается ${f}`);
   if (!(c >= 1 && c <= D.classNames.length)) errors.push(`класс: нет класса ${c} для ${f}`);
 });
-console.log(errors.length ? errors.join("\n") : `ok: ${D.formulas.length} формул, ${D.molar.length} масс, ${D.equations.length} уравнений, ${D.classes.length} веществ`);
+D.biology.forEach(([q, options, explain]) => {
+  if (!q.trim() || !explain.trim()) errors.push(`биология: пустой вопрос или пояснение: ${q}`);
+  if (options.length !== 4 || new Set(options).size !== 4) errors.push(`биология: нужно 4 разных варианта: ${q}`);
+});
+console.log(errors.length ? errors.join("\n") : `ok: ${D.formulas.length} формул, ${D.molar.length} масс, ${D.equations.length} уравнений, ${D.classes.length} веществ, ${D.biology.length} вопросов по биологии`);
 process.exit(errors.length ? 1 : 0);

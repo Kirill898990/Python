@@ -224,15 +224,19 @@
   const quote = (v) => "'" + String(v).replace(/\\/g, "\\\\").replace(/'/g, "\\'") + "'";
 
   /** Комната чата: {kind: "class", group} или {kind: "private", student}. */
+  // Комната чата: класс {kind: "class", group}, переписка с учителем {kind: "private", student}
+  // или чат купленного курса {kind: "course", enrollment}.
   function roomKey(room) {
-    return room.kind === "class" ? "class:" + room.group : "private:" + room.student;
+    return room.kind === "class" ? "class:" + room.group : room.kind === "course" ? "course:" + room.enrollment : "private:" + room.student;
   }
   function roomFilter(room) {
+    if (room.kind === "course") return `kind = "course" && enrollment = "${safeId(room.enrollment)}"`;
     return room.kind === "class"
       ? `kind = "class" && group = ${quote(room.group)}`
       : `kind = "private" && student = "${safeId(room.student)}"`;
   }
   function inRoom(message, room) {
+    if (room.kind === "course") return message.kind === "course" && message.enrollment === room.enrollment;
     return message.kind === room.kind &&
       (room.kind === "class" ? message.group === room.group : message.student === room.student);
   }
@@ -338,11 +342,18 @@
     noteFor(subject, grade) {
       return (state.content.notes || []).find((n) => n.subject === subject && n.grade === grade) || null;
     },
+    /** Практики предмета для классов (практики учеников курсов — отдельно, см. coursePractices). */
     practicesOf(subject) {
       return state.content.practices
-        .filter((p) => p.subject === subject)
+        .filter((p) => p.subject === subject && !p.enrollment)
         .sort((a, b) => (a.grade - b.grade) || (a.position - b.position) || a.title.localeCompare(b.title));
     },
+  };
+
+  /** Практики одного ученика курса (новые снизу). */
+  content.coursePractices = function (enrollmentId) {
+    return state.content.practices.filter((p) => p.enrollment === enrollmentId)
+      .sort((a, b) => (a.position - b.position) || String(a.created).localeCompare(String(b.created)));
   };
 
   /** Задания, которые проверяются автоматически (на сервере). */
@@ -547,6 +558,7 @@
         exam: !!p.exam, timeLimit: p.exam ? Math.min(600, Math.max(0, parseInt(p.timeLimit, 10) || 0)) : 0,
       };
       if (!p.id) body.owner = state.user.id; // новая практика принадлежит этому учителю
+      if (!p.id && p.enrollment) body.enrollment = p.enrollment; // практика для одного ученика курса
       const saved = await guard(p.id
         ? request("PATCH", `api/collections/practices/records/${safeId(p.id)}`, { body })
         : request("POST", "api/collections/practices/records", { body }));
@@ -616,8 +628,59 @@
       storage.set("content", state.content);
     },
 
+    /** Ученики учителя по школе (ученики его курсов сюда не попадают — они в «Мои курсы»). */
     students() {
-      return guard(listAll("users", { filter: "isTeacher = false", sort: "group,name" }));
+      return guard(listAll("users", { filter: `isTeacher = false && teacher = "${safeId(state.user.id)}"`, sort: "group,name" }));
+    },
+
+    // ----- Магазин beemei и курсы -----
+    /** Товары магазина (видны всем). */
+    products() {
+      return guard(listAll("products", { sort: "position,created" }));
+    },
+    product(id) {
+      return guard(request("GET", `api/collections/products/records/${safeId(id)}`));
+    },
+    /** Картинка товара; если её нет — обложка по умолчанию. */
+    productImage(p, thumb) {
+      return p && p.image ? fileUrl({ collectionName: "products", id: p.id }, p.image, thumb) : "images/shop/course.svg";
+    },
+    /** Данные продавца для оферты и контактов (видны всем). */
+    async shopInfo() {
+      const r = await request("GET", "api/collections/shop_info/records", { query: { perPage: 1 } });
+      return r.items[0] || {};
+    },
+    /**
+     * Корзина хранится в этом браузере: [{product, teacher, subject, exam, days}].
+     * Одна на браузер, чтобы собранная до входа корзина не пропала после входа.
+     */
+    cart: {
+      key: () => "beemei_cart",
+      get() { const v = storage.get(this.key(), []); return Array.isArray(v) ? v : []; },
+      set(items) { storage.set(this.key(), items); emit("cart"); },
+      add(item) {
+        // Тот же курс у того же учителя — один, новый срок заменяет старый.
+        const same = (x) => x.product === item.product && x.teacher === item.teacher && x.subject === item.subject && x.exam === item.exam;
+        this.set(this.get().filter((x) => !same(x)).concat(item));
+      },
+      remove(index) { const items = this.get(); items.splice(index, 1); this.set(items); },
+      clear() { this.set([]); },
+      count() { return this.get().length; },
+    },
+    /** Оформить заказ: сервер сам посчитает сумму и вернёт адрес страницы оплаты ЮKassa. */
+    checkout(items, email, phone) {
+      return guard(request("POST", "api/shop/checkout", { body: { items, email, phone } }));
+    },
+    /** Статус заказа (сервер при необходимости спросит ЮKassa). */
+    order(id) {
+      return guard(request("GET", `api/shop/orders/${safeId(id)}`));
+    },
+    /** Купленные курсы: у ученика — свои, у учителя — его ученики курсов. */
+    enrollments() {
+      return guard(listAll("enrollments", { sort: "-created", expand: "student,teacher" }));
+    },
+    enrollment(id) {
+      return guard(request("GET", `api/collections/enrollments/records/${safeId(id)}`, { query: { expand: "student,teacher" } }));
     },
 
     // ----- Чат -----
@@ -639,9 +702,11 @@
       return guard(request("POST", "api/collections/messages/records", {
         body: {
           author: u.id, authorName: u.name, fromTeacher: !!u.isTeacher, kind: room.kind,
-          teacher: u.isTeacher ? u.id : u.teacher || "",
+          // В чате курса учителя подставит сервер (это учитель курса, а не учитель по школе).
+          teacher: u.isTeacher ? u.id : room.kind === "course" ? "" : u.teacher || "",
           group: room.kind === "class" ? room.group : "",
           student: room.kind === "private" ? room.student : "",
+          enrollment: room.kind === "course" ? room.enrollment : "",
           text: String(text).trim(),
         },
       }));
@@ -798,6 +863,7 @@
    * биология 5 класса засчитывается 5А и 5Б, но не девятиклассникам.
    */
   function isAssigned(practice, group) {
+    if (practice.enrollment) return false; // практика ученика курса — в «Подготовке», а не в классе
     const classes = Array.isArray(practice.classes) ? practice.classes : [];
     if (classes.length) return classes.includes(group);
     const grade = gradeOf(group);
