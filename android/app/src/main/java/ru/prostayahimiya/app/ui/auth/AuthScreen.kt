@@ -57,6 +57,8 @@ import ru.prostayahimiya.app.data.ApiException
 import ru.prostayahimiya.app.data.Content
 import ru.prostayahimiya.app.data.Repository
 import ru.prostayahimiya.app.data.TeacherInfo
+import ru.prostayahimiya.app.data.isGroup
+import ru.prostayahimiya.app.data.normalizeGroup
 import ru.prostayahimiya.app.ui.components.EmojiBadge
 import ru.prostayahimiya.app.ui.components.openLink
 
@@ -97,6 +99,9 @@ fun AuthScreen(repository: Repository) {
             if (registerMode && name.trim().length < 2) put("name", "Впиши имя и фамилию")
             if (student && teacherId.isEmpty()) put("teacher", "Выбери своего учителя")
             if (student && teacherId.isNotEmpty() && !codeRequired && group.isBlank()) put("group", "Впиши класс, например 8Б")
+            else if (student && teacherId.isNotEmpty() && !codeRequired && !isGroup(normalizeGroup(group))) {
+                put("group", "Без пробелов, буква на русском: напиши класс, например 8Б")
+            }
             if (student && codeRequired && classCode.isBlank()) put("classCode", "Впиши код класса, который дал учитель")
             if (username.trim().length < 3) put("username", "Логин: не меньше 3 символов")
             if (password.length < 6) put("password", "Пароль: не меньше 6 символов")
@@ -199,7 +204,9 @@ fun AuthScreen(repository: Repository) {
                         )
                     } else if (teacherId.isNotEmpty()) {
                         Field(
-                            value = group, onChange = { group = it.uppercase() }, label = "Класс", placeholder = "8Б",
+                            // Пробелы убираем сразу, латинские буквы-двойники меняем на русские: «8 b» → «8В».
+                            value = group, onChange = { group = normalizeGroup(it) }, label = "Класс", placeholder = "8Б",
+                            supporting = "Без пробелов, буква на русском: например 8Б",
                             error = fieldErrors["group"], capitalization = KeyboardCapitalization.Characters,
                         )
                     }

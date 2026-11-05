@@ -408,7 +408,7 @@
       await request("POST", "api/collections/users/records", {
         body: {
           name: String(name).trim(),
-          group: String(group || "").trim().toUpperCase(),
+          group: normalizeGroup(group),
           classCode: String(extra.classCode || "").trim().toUpperCase(),
           teacher: extra.teacher || "",
           wantsTeacher: !!extra.wantsTeacher,
@@ -804,6 +804,21 @@
     return !grade || practice.grade === grade;
   }
 
+  /**
+   * Класс в одном виде: без пробелов, большими буквами, латинские буквы-двойники заменены русскими.
+   * «8 б» → «8Б», «8A» (латиница) → «8А». Так же делает сервер.
+   */
+  function normalizeGroup(value) {
+    const twins = { A: "А", B: "В", C: "С", E: "Е", H: "Н", K: "К", M: "М", O: "О", P: "Р", T: "Т", X: "Х", Y: "У" };
+    return String(value || "").replace(/\s+/g, "").toUpperCase().replace(/[ABCEHKMOPTXY]/g, (ch) => twins[ch]);
+  }
+
+  /** Похоже ли на класс: цифра (1–11) и буква без пробела — «8Б», «10А». */
+  function isGroup(value) {
+    const m = /^(\d{1,2})[А-ЯЁ]{0,2}$/.exec(value);
+    return !!m && +m[1] >= 1 && +m[1] <= 11;
+  }
+
   /** В какой класс ученик перейдёт в новом учебном году: «8А» → «9А», «11Б» → null (выпускник), «Кружок» → «Кружок». */
   function nextGroup(group) {
     const m = /^(\d{1,2})(.*)$/.exec(String(group || "").trim());
@@ -895,6 +910,8 @@
   }
 
   window.Content = {
+    normalizeGroup,
+    isGroup,
     nextGroup,
     timeOf,
     examLabel,

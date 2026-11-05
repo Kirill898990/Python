@@ -35,4 +35,13 @@ function examResultsOpen(practice, submission) {
   return !isNaN(deadline) && deadline <= Date.now()
 }
 
-module.exports = { Chem, taskData, hasInput, timeOf, examResultsOpen }
+/**
+ * Класс в одном виде: без пробелов, большими буквами, латинские буквы-двойники заменены русскими.
+ * «8 б» → «8Б», «8A» (латиница) → «8А». Иначе один класс разъехался бы на несколько.
+ */
+function normalizeGroup(value) {
+  const twins = { A: "А", B: "В", C: "С", E: "Е", H: "Н", K: "К", M: "М", O: "О", P: "Р", T: "Т", X: "Х", Y: "У" }
+  return String(value || "").replace(/\s+/g, "").toUpperCase().replace(/[ABCEHKMOPTXY]/g, (ch) => twins[ch])
+}
+
+module.exports = { Chem, taskData, hasInput, timeOf, examResultsOpen, normalizeGroup }

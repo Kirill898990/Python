@@ -168,6 +168,9 @@ onRecordCreateRequest((e) => {
     e.record.set("group", "")
     return e.next()
   }
+  // «8 б» → «8Б»: так класс у всех учеников записан одинаково (старые версии приложения пробелы не убирают).
+  const { normalizeGroup } = require(`${__hooks}/lib.js`)
+  e.record.set("group", normalizeGroup(e.record.getString("group")))
   const teachers = e.app.findRecordsByFilter("users", "isTeacher = true", "created,id", 0, 0)
   if (!teachers.length) fail("teacher", "no_teachers", "Пока нет ни одного учителя. Сначала должен зарегистрироваться учитель")
   let teacherId = e.record.getString("teacher")

@@ -75,6 +75,9 @@
         if (register && values.name.trim().length < 2) errors.name = "Впишите имя и фамилию";
         if (student && !values.teacher) errors.teacher = "Выбери своего учителя";
         if (student && values.teacher && !codeRequired && !values.group.trim()) errors.group = "Впиши класс, например 8Б";
+        else if (student && values.teacher && !codeRequired && !Content.isGroup(Content.normalizeGroup(values.group))) {
+          errors.group = "Без пробелов, буква на русском: напиши класс, например 8Б";
+        }
         if (student && codeRequired && !values.classCode.trim()) errors.classCode = "Впиши код класса, который дал учитель";
         if (values.username.trim().length < 3) errors.username = "Логин: не меньше 3 символов";
         if (values.password.length < 6) errors.password = "Пароль: не меньше 6 символов";
@@ -115,7 +118,16 @@
           UI.chip("👩‍🏫 Я учитель", asTeacher, () => { asTeacher = true; renderForm(); })),
         register && make("name", { label: "Имя и фамилия", placeholder: asTeacher ? "Ирина Петровна Смирнова" : "Петя Иванов", autocomplete: "name", autocapitalize: "words" }),
         teacherField,
-        student && values.teacher && !codeRequired && make("group", { label: "Класс", placeholder: "8Б", autocapitalize: "characters" }),
+        student && values.teacher && !codeRequired && (() => {
+          const f = make("group", { label: "Класс", placeholder: "8Б", autocapitalize: "characters", supporting: "Без пробелов, буква на русском: например 8Б" });
+          // Пробелы убираем сразу, латинские буквы-двойники меняем на русские: «8 b» → «8В».
+          f.input.addEventListener("input", () => {
+            const clean = Content.normalizeGroup(f.input.value);
+            if (clean !== f.input.value) f.input.value = clean;
+            values.group = clean;
+          });
+          return f;
+        })(),
         student && codeRequired && make("classCode", {
           label: "Код класса", placeholder: "K7Q2XM", autocapitalize: "characters", autocomplete: "off",
           supporting: "Код даёт учитель. По нему ты попадёшь в свой класс",
