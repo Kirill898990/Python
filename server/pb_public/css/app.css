@@ -765,3 +765,21 @@ p { margin: 0; }
 .field-select select:focus { border: 2px solid var(--primary); padding: 13px 15px; outline: none; }
 .field-select.field-error select { border-color: var(--error); }
 .field-select.field-error .field-support { color: var(--error); }
+
+/* ----- Контрольная ----- */
+.exam-timer {
+  position: sticky;
+  top: 68px; /* под шапкой */
+  z-index: 9;
+  align-self: center;
+  padding: 8px 18px;
+  border-radius: 999px;
+  background: var(--primary-container);
+  color: var(--on-primary-container);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+.exam-timer.warn { background: var(--error-container); color: var(--on-error-container); }
+.exam-rules { margin: 12px 0 0; padding-left: 0; list-style: none; display: grid; gap: 8px; }
+.exam-rules li { line-height: 1.4; }

@@ -1,5 +1,10 @@
 package ru.prostayahimiya.app.ui.cabinet
 
+import kotlin.coroutines.cancellation.CancellationException
+import ru.prostayahimiya.app.data.Practice
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.AlertDialog
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -85,6 +90,7 @@ fun SubmissionScreen(submissionId: String, repository: Repository, onBack: () ->
                 repository = repository,
                 snackbar = snackbar,
                 padding = padding,
+                onBack = onBack,
             )
         }
     }
@@ -97,9 +103,13 @@ private fun SubmissionContent(
     repository: Repository,
     snackbar: SnackbarHostState,
     padding: PaddingValues,
+    onBack: () -> Unit,
 ) {
     var current by remember(submission.id) { mutableStateOf(submission) }
     val content by repository.content.collectAsState()
+    val practice = content.practice(current.practice)
+    // Практику могли создать на другом устройстве — обновим список, чтобы знать, контрольная ли это.
+    LaunchedEffect(current.practice) { if (practice == null) repository.refreshContent() }
     // Номера вопросов считаем заранее: элементы списка рисуются не по порядку.
     val questionNumbers = remember(current.answers) {
         var n = 0
@@ -131,12 +141,20 @@ private fun SubmissionContent(
                 Text(
                     buildString {
                         append("Сдано ${formatServerDate(current.created)}")
-                        if (current.total > 0) append(" · автопроверка: верно ${current.solved} из ${current.total}")
-                        if (current.isLate(content.practice(current.practice))) append(" · с опозданием")
+                        if (current.total > 0 && !current.resultsHidden) append(" · автопроверка: верно ${current.solved} из ${current.total}")
+                        if (current.isLate(practice)) append(" · с опозданием")
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                if (current.overtime) {
+                    Text(
+                        "⏰ Сдано после окончания времени",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.error,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
             }
         }
 
@@ -147,11 +165,71 @@ private fun SubmissionContent(
                 GradeView(current)
             }
         }
+        if (current.resultsHidden) {
+            item {
+                Card(colors = cardColors(), border = cardBorder()) {
+                    Text(
+                        "📊 ${(practice ?: Practice()).examResultsText}. Пока видны только твои ответы.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(16.dp),
+                    )
+                }
+            }
+        }
+        if (isTeacher && practice?.exam == true) {
+            item { ExamRetakeCard(current, repository, snackbar, onBack) }
+        }
 
         item { SectionLabel("Ответы") }
         itemsIndexed(current.answers) { index, answer ->
             AnswerCard(answer, questionNumbers[index])
         }
+    }
+}
+
+/** Контрольная: разрешить ученику написать её ещё раз (эта работа удалится). */
+@Composable
+private fun ExamRetakeCard(submission: Submission, repository: Repository, snackbar: SnackbarHostState, onDone: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    var confirm by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    Card(colors = cardColors(), border = cardBorder()) {
+        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+            Text("Контрольная", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(
+                "Если ученику помешали (сел телефон, пропал интернет), можно дать ему написать работу заново.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
+            )
+            OutlinedButton(onClick = { confirm = true }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Разрешить пересдать") }
+        }
+    }
+    if (confirm) {
+        val name = submission.studentUser?.name ?: "ученик"
+        AlertDialog(
+            onDismissRequest = { confirm = false },
+            title = { Text("Разрешить пересдать?") },
+            text = { Text("Эта работа удалится, и $name сможет написать контрольную ещё раз — даже если срок уже прошёл.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirm = false
+                    busy = true
+                    scope.launch {
+                        try {
+                            repository.resetExam(submission.practice, submission.student)
+                            onDone()
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            snackbar.showSnackbar(e.message ?: "Не получилось")
+                        }
+                        busy = false
+                    }
+                }) { Text("Разрешить") }
+            },
+            dismissButton = { TextButton(onClick = { confirm = false }) { Text("Отмена") } },
+        )
     }
 }
 

@@ -109,6 +109,7 @@ fun AppNavigation(repository: Repository) {
                 onBack = dropUnlessResumed { nav.popBackStack() },
                 onOpenCabinet = { nav.navigateSingle("cabinet") },
                 onOpenReference = { nav.navigate("reference") },
+                onOpenSubmission = { id -> nav.navigate("submission/$id") },
             )
         }
         composable("reference") {

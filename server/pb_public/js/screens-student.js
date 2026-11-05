@@ -315,9 +315,11 @@
         list.map((p) => {
           const total = content.myTasks(p.id).length;
           const last = showStatus ? Api.lastSubmission(p.id) : null;
+          // Сколько заданий в контрольной, ученик узнает только после «Начать».
+          const count = p.exam && showStatus ? Content.examLabel(p) : `${total} ${Content.tasksWord(total)}` + (p.exam ? " · " + Content.examLabel(p) : "");
           const status = !showStatus || !last
-            ? `${total} ${Content.tasksWord(total)}` + (showStatus ? " · не сдано" : "")
-            : last.grade > 0 ? `Сдано · оценка ${last.grade}` : "Сдано · на проверке";
+            ? count + (showStatus ? " · не сдано" : "")
+            : last.grade > 0 ? `Сдано · оценка ${last.grade}` : last.resultsHidden ? "Сдано · результаты позже" : "Сдано · на проверке";
           const due = showStatus && Content.isAssigned(p, Api.state.user.group) ? Content.deadlineStatus(p, !!last) : null;
           const forClasses = !showStatus && Array.isArray(p.classes) && p.classes.length ? "Для " + p.classes.join(", ") : null;
           const teacherDue = !showStatus && Content.deadlineOf(p) ? "до " + Content.formatDay(Content.deadlineOf(p)) : null;
@@ -487,16 +489,109 @@
   /** Какой вариант учитель смотрит в каждой практике. */
   const teacherVariant = new Map();
 
+  // ======================= Контрольная =======================
+  /** Начатые в этот раз контрольные: id практики → {endsAt, offset}. */
+  const examSessions = new Map();
+  /** Таймер контрольной один на весь сайт: новый экран останавливает старый. */
+  let examTimerId = 0;
+  /** Контрольные, которые сейчас отправляются (чтобы не отправить одну работу дважды). */
+  const examSending = new Set();
+
+  function examTopBar(p) {
+    return topBar(`${Content.subjectOf(p.subject).title} · ${p.grade} класс`, () => App.back(`subject/${p.subject}`));
+  }
+
+  /**
+   * Что показать ученику вместо заданий контрольной: правила и «Начать», «Работа сдана» или загрузку.
+   * null — контрольная начата, задания получены: показываем их.
+   */
+  function examGate(p) {
+    const last = Api.lastSubmission(p.id);
+    if (last) {
+      examSessions.delete(p.id);
+      return examDone(p, last);
+    }
+    if (examSessions.has(p.id)) return null;
+    const begin = async (now) => {
+      const session = await Api.startExam(p.id, now);
+      if (session.submitted) await Api.refreshMySubmissions();
+      else if (!session.notStarted) examSessions.set(p.id, session);
+      App.render();
+    };
+    // Уже начата (например, страницу обновили) — сразу продолжаем, таймер идёт с прежнего времени.
+    if ((Api.state.content.examStarts || {})[p.id]) {
+      return h("div", { class: "screen" }, examTopBar(p), h("h2", { class: "home-title" }, p.title), asyncBlock(() => begin(false), () => loading()));
+    }
+
+    const d = Content.deadlineOf(p);
+    const closed = !!d && d < new Date();
+    const msg = h("div", { "aria-live": "polite" });
+    let busy = false;
+    const startBtn = button("Начать контрольную", start, { iconName: "send", cls: "btn-block mt", disabled: closed });
+    async function start() {
+      if (busy) return;
+      if (p.timeLimit > 0 && !(await confirm("Начать контрольную?",
+        `Таймер на ${p.timeLimit} мин пойдёт сразу, остановить его нельзя. Когда время закончится, работа отправится сама.`, "Начать"))) return;
+      busy = true;
+      startBtn.disabled = true;
+      replace(startBtn, h("span", { class: "spinner spinner-sm" }), h("span", null, "Открываем…"));
+      try {
+        await begin(true);
+      } catch (e) {
+        replace(msg, feedback(e.message || "Не получилось начать", "error"));
+        startBtn.disabled = false;
+        replace(startBtn, icon("send", 18), h("span", null, "Начать контрольную"));
+      }
+      busy = false;
+    }
+    return h("div", { class: "screen" },
+      examTopBar(p),
+      h("h2", { class: "home-title" }, p.title),
+      h("div", { class: "card" },
+        h("div", { class: "row" }, emojiBadge("📝", "c-chemistry"), h("div", { class: "card-title grow" }, "Контрольная работа")),
+        h("ul", { class: "exam-rules" },
+          h("li", null, p.timeLimit > 0 ? `⏱ На работу ${p.timeLimit} мин. Таймер пойдёт, как только ты нажмёшь «Начать».` : "⏱ Время не ограничено."),
+          h("li", null, "🔒 Ответы сразу не проверяются, подсказок нет."),
+          h("li", null, "📤 Сдать работу можно только один раз."),
+          h("li", null, "📊 " + Content.examResultsText(p) + "."),
+          d && h("li", { class: closed ? "err bold" : "" }, closed ? `⛔ Срок прошёл ${Content.formatDay(d)}. Если нужно написать позже — попроси учителя.` : `📅 Начать можно до ${Content.formatDay(d)}.`)),
+        startBtn,
+        msg));
+  }
+
+  function examDone(p, s) {
+    return h("div", { class: "screen" },
+      examTopBar(p),
+      h("h2", { class: "home-title" }, p.title),
+      h("div", { class: "card stack" },
+        h("div", { class: "row" },
+          h("div", { class: "grow" },
+            h("div", { class: "card-title" }, "✅ Контрольная сдана"),
+            h("div", { class: "tiny muted" }, "Сдано " + Content.formatDate(s.created)),
+            s.overtime && h("div", { class: "tiny err bold" }, "⏰ После окончания времени")),
+          gradeBadge(s.grade)),
+        s.comment && h("p", null, "💬 " + s.comment),
+        !(s.grade > 0) && h("p", { class: "small muted" }, s.resultsHidden ? Content.examResultsText(p) : "Учитель ещё не поставил оценку"),
+        h("a", { class: "btn btn-text", href: `#/submission/${s.id}` }, "Посмотреть мою работу")));
+  }
+
   function practice(params) {
     const p = content.practice(params.id);
     if (!p) {
       return h("div", { class: "screen" }, topBar("Практика", () => App.back("")), emptyBox("🗂️", "Эта практика больше недоступна"));
     }
+    clearInterval(examTimerId);
     const user = Api.state.user;
     const store = Api.progress;
+    const isTeacherView = !!(user && user.isTeacher);
+    // Контрольная: ответы сразу не проверяются, сдать можно один раз, задания — только после «Начать».
+    const exam = !!p.exam;
+    if (exam && !isTeacherView) {
+      const gate = examGate(p);
+      if (gate) return protectFromCopy(gate);
+    }
     // Варианты: ученику — его вариант, учителю — тот, который он выбрал для просмотра.
     const variantCount = content.variantCount(p.id);
-    const isTeacherView = !!(user && user.isTeacher);
     const variant = !variantCount ? 0
       : isTeacherView ? Math.min(teacherVariant.get(p.id) || 1, variantCount) : content.variantFor(p.id);
     const all = content.tasksForVariant(p.id, variant).filter((t) => t.type !== "equation" || Chem.parseEquation(t.text));
@@ -526,6 +621,14 @@
      * input() — то, что ввёл ученик; onResult(r) — показать, какие части верны (для пропусков).
      */
     function checkCard(task, label, body, { input, onResult, onChange, allowEmpty = false } = {}) {
+      if (exam) {
+        // В контрольной кнопки «Проверить» нет: ответы проверятся после сдачи.
+        const card = h("div", { class: "card" }, h("div", { class: "row" }, h("span", { class: "task-label grow" }, label)), taskImage(task), body);
+        inputOf.set(task.id, input);
+        card.clearResult = () => { if (onChange) onChange(); };
+        card.check = () => {};
+        return card;
+      }
       const solvedNow = store.solved().has(task.id);
       const pill = h("span", { class: "pill pill-solved", hidden: !solvedNow }, icon("check", 16), "Решено");
       const resultBox = h("div", { "aria-live": "polite" });
@@ -797,6 +900,81 @@
       return h("div", { class: "card" }, h("div", { class: "task-label" }, "Сдать работу"), h("div", { class: "mt" }, statusBox), sendBtn, resultBox);
     }
 
+    /** Сдача контрольной: один раз, с подтверждением. Когда время выходит, отправляется сама (auto). */
+    function examSubmitCard() {
+      const resultBox = h("div");
+      let sending = false;
+      let done = false;
+      const sendBtn = button("Сдать контрольную", () => send(false), { iconName: "send", cls: "btn-block mt" });
+      async function send(auto) {
+        if (sending || done || examSending.has(p.id)) return;
+        if (!auto && !(await confirm("Сдать контрольную?", "Изменить ответы после этого будет нельзя.", "Сдать"))) return;
+        if (examSending.has(p.id)) return;
+        examSending.add(p.id);
+        sending = true;
+        sendBtn.disabled = true;
+        replace(sendBtn, h("span", { class: "spinner spinner-sm" }), h("span", null, "Отправляем…"));
+        try {
+          await Api.submit(p, buildAnswers(), 0, checkable.length, variant);
+          done = true;
+          store.reset(all.map((t) => t.id));
+          examSessions.delete(p.id);
+          examSending.delete(p.id);
+          if (auto) UI.toast("Время вышло — работа отправлена");
+          App.render();
+          return;
+        } catch (e) {
+          examSending.delete(p.id);
+          if (/один раз|уже сдана/.test(e.message || "")) {
+            await Api.refreshMySubmissions();
+            App.render();
+            return;
+          }
+          replace(resultBox, feedback((e.message || "Не получилось отправить") + (auto ? " Попробуем ещё раз через несколько секунд." : ""), "error"));
+        }
+        sending = false;
+        sendBtn.disabled = false;
+        replace(sendBtn, icon("send", 18), h("span", null, "Сдать контрольную"));
+      }
+      const card = h("div", { class: "card" },
+        h("div", { class: "task-label" }, "Сдать контрольную"),
+        h("p", { class: "muted small mt" }, "Проверить ответы до сдачи нельзя. Сдать можно один раз — потом ответы уже не изменить."),
+        sendBtn, resultBox);
+      card.send = send;
+      return card;
+    }
+
+    // ----- Таймер контрольной -----
+    const session = exam && !isTeacherView ? examSessions.get(p.id) : null;
+    const submitBox = sections.length > 0 && !isTeacherView ? (exam ? examSubmitCard() : submitCard()) : null;
+    let timerEl = null;
+    if (session && session.endsAt) {
+      timerEl = h("div", { class: "exam-timer", role: "timer" });
+      let mounted = false;
+      let lastAuto = 0;
+      const tick = () => {
+        if (timerEl.isConnected) mounted = true;
+        else if (mounted) return clearInterval(timerId); // ушли с экрана
+        const left = session.endsAt - (Date.now() + session.offset);
+        if (left <= 0) {
+          timerEl.textContent = "⏱ Время вышло — отправляем работу…";
+          timerEl.classList.add("warn");
+          if (submitBox && Date.now() - lastAuto > 10000) {
+            lastAuto = Date.now();
+            submitBox.send(true);
+          }
+          return;
+        }
+        const m = Math.floor(left / 60000);
+        const sec = Math.floor(left / 1000) % 60;
+        timerEl.textContent = `⏱ Осталось ${m}:${String(sec).padStart(2, "0")}`;
+        timerEl.classList.toggle("warn", left < 5 * 60000);
+      };
+      const timerId = setInterval(tick, 1000);
+      examTimerId = timerId;
+      tick();
+    }
+
     const reset = async () => {
       const ok = await confirm("Начать заново?", "Черновики ответов и отметки о решённых заданиях по этой практике удалятся. Сданные работы останутся у учителя.", "Начать заново");
       if (!ok) return;
@@ -807,8 +985,13 @@
     const screen = h("div", { class: "screen" },
       topBar(`${Content.subjectOf(p.subject).title} · ${p.grade} класс`, () => App.back(`subject/${p.subject}`),
         h("button", { class: "icon-btn", type: "button", "aria-label": "Справочник", title: "Таблица Менделеева и растворимости", onclick: () => App.go("reference") }, icon("book")),
-        menuButton([{ label: "Начать заново", onclick: reset }])),
+        !exam && menuButton([{ label: "Начать заново", onclick: reset }])),
+      timerEl,
       h("h2", { class: "home-title" }, p.title),
+      exam && isTeacherView && h("div", { class: "card" },
+        h("div", { class: "card-title" }, "📝 " + Content.examLabel(p)),
+        h("p", { class: "small muted mt" }, "Ученики увидят задания только после «Начать». Ответы сразу не проверяются, сдать можно один раз. " +
+          Content.examResultsText(p) + ".")),
       variantCount > 0 && (isTeacherView
         ? [
           h("div", { class: "row-wrap" },
@@ -828,12 +1011,13 @@
       sections.length === 0 && emptyBox("📝", "В этой практике пока нет заданий"),
       sections.map((s, i) => [
         h("h3", { class: "section-title" }, `${i + 1}. ${s.title}`),
-        h("p", { class: "muted small" }, s.note),
+        // В контрольной нет «Проверить», а сдаётся всё одной кнопкой.
+        h("p", { class: "muted small" }, exam ? s.note.replace(" и нажми «Проверить»", "").replace(", а в конце сдай работу учителю", "") : s.note),
         cardsOf[s.type],
       ]),
       sections.length > 0 && (user && user.isTeacher
         ? h("p", { class: "muted small" }, "Так практику видят ученики. Сдавать работу учителю не нужно.")
-        : submitCard()));
+        : submitBox));
     // Ученику нельзя копировать задания и вставлять текст в ответы. У учителя ограничений нет.
     return user && user.isTeacher ? screen : protectFromCopy(screen);
   }
@@ -845,8 +1029,10 @@
       h("div", { class: "grow" },
         showStudent && h("div", { class: "card-title" }, st ? (st.group ? `${st.name}, ${st.group}` : st.name) : "Ученик удалён"),
         h("div", { class: showStudent ? "small" : "card-title" }, s.practiceTitle),
-        h("div", { class: "tiny muted" }, Content.formatDate(s.created) + (s.total > 0 ? ` · решено ${s.solved} из ${s.total}` : "") + (s.variant ? ` · вариант ${s.variant}` : ""),
-          Content.isLate(s, content.practice(s.practice)) && h("span", { class: "err bold" }, " · с опозданием"))),
+        h("div", { class: "tiny muted" }, Content.formatDate(s.created) +
+          (s.resultsHidden ? " · результаты позже" : s.total > 0 ? ` · решено ${s.solved} из ${s.total}` : "") + (s.variant ? ` · вариант ${s.variant}` : ""),
+          Content.isLate(s, content.practice(s.practice)) && h("span", { class: "err bold" }, " · с опозданием"),
+          s.overtime && h("span", { class: "err bold" }, " · время вышло"))),
       gradeBadge(s.grade));
   }
 
@@ -887,7 +1073,13 @@
   // ======================= Сданная работа =======================
   function submission(params) {
     const isTeacher = Api.state.user && Api.state.user.isTeacher;
-    const body = asyncBlock(() => Api.submission(params.id), (s) => {
+    // Практику могли создать на другом устройстве — тогда обновим список, чтобы знать, контрольная ли это.
+    const load = async () => {
+      const s = await Api.submission(params.id);
+      if (!content.practice(s.practice)) await Api.refreshContent();
+      return s;
+    };
+    const body = asyncBlock(load, (s) => {
       let qn = 0;
       const answers = (s.answers || []).map((a) => {
         const title = a.kind === "question" ? `Вопрос ${++qn}`
@@ -907,9 +1099,12 @@
         h("div", null,
           isTeacher && st && h("h2", { class: "home-title" }, st.group ? `${st.name}, ${st.group}` : st.name),
           h("div", { class: "card-title" }, s.practiceTitle + (s.variant ? ` · вариант ${s.variant}` : "")),
-          h("p", { class: "small muted" }, "Сдано " + Content.formatDate(s.created) + (s.total > 0 ? ` · автопроверка: верно ${s.solved} из ${s.total}` : ""),
-            Content.isLate(s, content.practice(s.practice)) && h("span", { class: "err bold" }, " · с опозданием"))),
+          h("p", { class: "small muted" }, "Сдано " + Content.formatDate(s.created) + (s.total > 0 && !s.resultsHidden ? ` · автопроверка: верно ${s.solved} из ${s.total}` : ""),
+            Content.isLate(s, content.practice(s.practice)) && h("span", { class: "err bold" }, " · с опозданием"),
+            s.overtime && h("span", { class: "err bold" }, " · после окончания времени"))),
         isTeacher ? Teacher.gradeEditor(s) : gradeView(s),
+        s.resultsHidden && h("div", { class: "card" }, h("p", { class: "small" }, "📊 " + Content.examResultsText(content.practice(s.practice) || {}) + ". Пока видны только твои ответы.")),
+        isTeacher && (content.practice(s.practice) || {}).exam && Teacher.examRetake(s),
         sectionLabel("Ответы"),
         answers,
       ];

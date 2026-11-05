@@ -165,6 +165,34 @@ class PracticeViewModel(
         }
     }
 
+    /**
+     * Сдать контрольную: один раз и без проверки «хотя бы один ответ» — когда время выходит, работа уходит сама.
+     * Если сервер ответил, что работа уже сдана, просто обновляем список работ.
+     */
+    fun submitExam() {
+        if (sendState is SendState.Sending || sendState is SendState.Sent) return
+        sendState = SendState.Sending
+        viewModelScope.launch {
+            sendState = try {
+                lastSubmission = repository.submit(practice, buildAnswers(), 0, checkable.size, variant)
+                store.reset(tasks.map { it.id })
+                repository.endExam(practice.id)
+                SendState.Sent
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                val message = e.message.orEmpty()
+                if ("один раз" in message || "уже сдана" in message) {
+                    repository.refreshMySubmissions()
+                    repository.endExam(practice.id)
+                    SendState.Sent
+                } else {
+                    SendState.Error(message.ifBlank { "Не получилось отправить" })
+                }
+            }
+        }
+    }
+
     private fun buildAnswers(): List<AnswerItem> = tasks.map { task ->
         val value = input(task)
         val empty = !isFilled(value)

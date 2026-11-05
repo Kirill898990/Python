@@ -74,6 +74,33 @@
       saveBtn);
   }
 
+  /** Контрольная: разрешить ученику написать её ещё раз (сданная работа удалится). */
+  function examRetake(s) {
+    const st = s.expand && s.expand.student;
+    let busy = false;
+    const btn = button("Разрешить пересдать", async () => {
+      if (busy) return;
+      const ok = await confirm("Разрешить пересдать?",
+        `Эта работа удалится, и ${st ? st.name : "ученик"} сможет написать контрольную ещё раз — даже если срок уже прошёл.`, "Разрешить");
+      if (!ok) return;
+      busy = true;
+      btn.disabled = true;
+      try {
+        await Api.resetExam(s.practice, s.student);
+        toast("Готово: ученик может написать контрольную ещё раз");
+        App.back("admin/works");
+      } catch (e) {
+        toast(e.message || "Не получилось");
+        busy = false;
+        btn.disabled = false;
+      }
+    }, { kind: "outline", cls: "btn-block" });
+    return h("div", { class: "card stack" },
+      h("div", { class: "card-title" }, "Контрольная"),
+      h("p", { class: "small muted" }, "Если ученику помешали (сел телефон, пропал интернет), можно дать ему написать работу заново."),
+      btn);
+  }
+
   // ----- Список практик -----
   function practices() {
     const list = ["chemistry", "biology"].map((key) => {
@@ -86,6 +113,7 @@
             h("div", { class: "row" }, h("span", { class: "card-title" }, `${p.grade} класс · ${p.title}`), !p.published && h("span", { class: "pill pill-draft" }, "Черновик")),
             h("div", { class: "card-sub" }, [
               `Заданий: ${content.tasksOf(p.id).length}`,
+              p.exam && Content.examLabel(p).toLowerCase(),
               Array.isArray(p.classes) && p.classes.length ? "для " + p.classes.join(", ") : "для всех классов",
               Content.deadlineOf(p) && "до " + Content.formatDay(Content.deadlineOf(p)),
             ].filter(Boolean).join(" · "))),
@@ -344,6 +372,8 @@
       position: original ? original.position : 0,
       classes: original && Array.isArray(original.classes) ? original.classes.slice() : [],
       deadline: original ? original.deadline || "" : "",
+      exam: original ? !!original.exam : false,
+      timeLimit: original ? original.timeLimit || 0 : 40,
     };
 
     // ----- Для каких классов -----
@@ -388,6 +418,20 @@
     const updatePublished = () => { publishedHint.textContent = form.published ? "Ученики видят эту практику" : "Черновик: ученики не видят"; };
     publishedInput.addEventListener("change", () => { form.published = publishedInput.checked; updatePublished(); });
     updatePublished();
+
+    // ----- Контрольная -----
+    const examInput = h("input", { type: "checkbox", checked: form.exam, "aria-label": "Контрольная работа" });
+    const timeField = field({
+      label: "Время на работу, минут", value: form.timeLimit ? String(form.timeLimit) : "", inputmode: "numeric",
+      supporting: "Пусто или 0 — без ограничения", oninput: (v) => { form.timeLimit = parseInt(v.replace(/\D/g, ""), 10) || 0; },
+    });
+    const examBox = h("div", { class: "stack" },
+      timeField,
+      h("p", { class: "tiny muted" }, "Ответы не проверяются сразу, подсказок нет, сдать можно один раз. Задания ученик увидит только после «Начать». " +
+        "Результаты — после срока сдачи (если срока нет — когда вы поставите оценку)."));
+    const updateExam = () => { examBox.hidden = !form.exam; };
+    examInput.addEventListener("change", () => { form.exam = examInput.checked; updateExam(); });
+    updateExam();
 
     async function savePractice() {
       if (busy) return;
@@ -707,11 +751,15 @@
         h("div", { class: "small bold" }, "Срок сдачи (необязательно)"),
         h("div", { class: "row" }, deadlineInput, clearDeadline),
         h("div", { class: "row" },
+          h("div", { class: "grow" }, h("div", null, "Контрольная работа"), h("div", { class: "tiny muted" }, "Без мгновенной проверки, с таймером")),
+          h("label", { class: "switch" }, examInput, h("span"))),
+        examBox,
+        h("div", { class: "row" },
           h("div", { class: "grow" }, h("div", null, "Опубликовано"), publishedHint),
           h("label", { class: "switch" }, publishedInput, h("span"))),
         saveBtn),
       tasksBox);
   }
 
-  window.Teacher = { admin, editor, gradeEditor };
+  window.Teacher = { admin, editor, gradeEditor, examRetake };
 })();

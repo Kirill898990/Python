@@ -194,14 +194,20 @@ fun SubmissionCard(submission: Submission, showStudent: Boolean, late: Boolean =
                 Text(
                     buildString {
                         append(formatServerDate(submission.created))
-                        if (submission.total > 0) append(" · решено ${submission.solved} из ${submission.total}")
+                        if (submission.resultsHidden) append(" · результаты позже")
+                        else if (submission.total > 0) append(" · решено ${submission.solved} из ${submission.total}")
                         if (submission.variant > 0) append(" · вариант ${submission.variant}")
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                if (late) {
-                    Text("⏰ с опозданием", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
+                if (late || submission.overtime) {
+                    Text(
+                        listOfNotNull("с опозданием".takeIf { late }, "время вышло".takeIf { submission.overtime }).joinToString(" · ", prefix = "⏰ "),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.error,
+                        fontWeight = FontWeight.SemiBold,
+                    )
                 }
             }
             GradeBadge(submission.grade)

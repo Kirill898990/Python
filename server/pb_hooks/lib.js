@@ -22,4 +22,17 @@ function hasInput(input) {
   return String(input == null ? "" : input).replace(/[|,]/g, "").trim() !== ""
 }
 
-module.exports = { Chem, taskData, hasInput }
+/** Время из поля даты PocketBase («2026-11-05 10:00:00.000Z») в миллисекундах. Пусто — NaN. */
+function timeOf(value) {
+  const s = String(value || "").trim()
+  return s ? Date.parse(s.replace(" ", "T")) : NaN
+}
+
+/** Контрольная: ученик видит результаты после срока сдачи или когда учитель поставил оценку. */
+function examResultsOpen(practice, submission) {
+  if (submission.getInt("grade") > 0) return true
+  const deadline = timeOf(practice.getString("deadline"))
+  return !isNaN(deadline) && deadline <= Date.now()
+}
+
+module.exports = { Chem, taskData, hasInput, timeOf, examResultsOpen }

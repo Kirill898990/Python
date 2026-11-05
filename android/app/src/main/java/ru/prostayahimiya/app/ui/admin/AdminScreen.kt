@@ -201,7 +201,7 @@ private fun PracticesTab(
                                 }
                             }
                             Text(
-                                "Заданий: $count",
+                                "Заданий: $count" + if (practice.exam) " · ${practice.examLabel.lowercase()}" else "",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )

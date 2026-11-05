@@ -117,6 +117,8 @@ fun PracticeEditorScreen(practiceId: String, repository: Repository, onBack: () 
     var published by rememberSaveable(currentId) { mutableStateOf(original.published) }
     var classes by rememberSaveable(currentId) { mutableStateOf(original.classes) }
     var deadline by rememberSaveable(currentId) { mutableStateOf(original.deadline) }
+    var exam by rememberSaveable(currentId) { mutableStateOf(original.exam) }
+    var timeLimit by rememberSaveable(currentId) { mutableStateOf(if (original.id.isEmpty()) "40" else original.timeLimit.takeIf { it > 0 }?.toString().orEmpty()) }
     var pickingDate by remember { mutableStateOf(false) }
     // Классы, которые можно выбрать: из списка учеников и уже выбранные.
     var knownClasses by remember { mutableStateOf(original.classes) }
@@ -135,7 +137,8 @@ fun PracticeEditorScreen(practiceId: String, repository: Repository, onBack: () 
     val tasks = if (currentId.isEmpty()) emptyList() else content.tasksOf(currentId)
     val changed = currentId.isEmpty() || title != original.title || subject != original.subject ||
         grade != original.grade || published != original.published || classes != original.classes ||
-        parseServerInstant(deadline) != original.deadlineInstant
+        parseServerInstant(deadline) != original.deadlineInstant ||
+        exam != original.exam || (exam && (timeLimit.toIntOrNull() ?: 0) != original.timeLimit)
 
     /** Выполняет действие с сервером и показывает ошибку, если что-то пошло не так. */
     fun serverAction(success: String? = null, action: suspend () -> Unit) {
@@ -158,6 +161,7 @@ fun PracticeEditorScreen(practiceId: String, repository: Repository, onBack: () 
             original.copy(
                 id = currentId, title = title, subject = subject, grade = grade, published = published,
                 classes = classes, deadline = deadline,
+                exam = exam, timeLimit = if (exam) (timeLimit.toIntOrNull() ?: 0).coerceIn(0, 600) else 0,
             ),
         )
         currentId = saved.id
@@ -238,6 +242,34 @@ fun PracticeEditorScreen(practiceId: String, repository: Repository, onBack: () 
                             if (deadline.isNotBlank()) {
                                 TextButton(onClick = { deadline = "" }) { Text("Без срока") }
                             }
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Контрольная работа", style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    "Без мгновенной проверки, с таймером",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Switch(checked = exam, onCheckedChange = { exam = it })
+                        }
+                        if (exam) {
+                            OutlinedTextField(
+                                value = timeLimit,
+                                onValueChange = { v -> timeLimit = v.filter(Char::isDigit).take(3) },
+                                label = { Text("Время на работу, минут") },
+                                supportingText = { Text("Пусто или 0 — без ограничения") },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Text(
+                                "Ответы не проверяются сразу, подсказок нет, сдать можно один раз. Задания ученик увидит только после " +
+                                    "«Начать». Результаты — после срока сдачи (если срока нет — когда вы поставите оценку).",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {

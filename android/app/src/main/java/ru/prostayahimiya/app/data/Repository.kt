@@ -154,12 +154,21 @@ class Repository(private val context: Context) {
         val practices = api.listAll("practices", Practice.serializer(), sort = "grade,position,title")
         val tasks = api.listAll("tasks", Task.serializer(), sort = "position")
         val notes = runCatching { api.listAll("notes", Note.serializer(), sort = "subject,grade") }.getOrDefault(emptyList())
-        val variants = if (_user.value?.isTeacher == false) {
+        val isStudent = _user.value?.isTeacher == false
+        val variants = if (isStudent) {
             runCatching { api.call("GET", api.url("api/variants"), VariantsResponse.serializer()).variants }.getOrDefault(emptyMap())
         } else {
             emptyMap()
         }
-        val data = ContentData(practices, tasks, notes, variants)
+        val examStarts = if (isStudent) {
+            runCatching { api.listAll("exam_starts", ExamStart.serializer()) }.getOrDefault(emptyList())
+                .filter { it.started.isNotBlank() }.associate { it.practice to it.started }
+        } else {
+            emptyMap()
+        }
+        // Задания начатых контрольных сервер отдаёт только через /api/exam/start — оставляем уже полученные.
+        val kept = if (isStudent) _content.value.tasks.filter { it.practice in examStarts } else emptyList()
+        val data = ContentData(practices, tasks + kept, notes, variants, examStarts)
         _content.value = forUser(data, _user.value)
         _contentError.value = null
         cacheFile.writeText(api.json.encodeToString(ContentData.serializer(), data))
@@ -168,6 +177,60 @@ class Repository(private val context: Context) {
         _contentError.value = it.message
         false
     }
+
+    // ---------- Контрольная ----------
+
+    private val _examSessions = MutableStateFlow<Map<String, ExamSession>>(emptyMap())
+
+    /** Контрольные, которые идут сейчас: id практики → время. */
+    val examSessions: StateFlow<Map<String, ExamSession>> = _examSessions.asStateFlow()
+
+    /**
+     * Начать контрольную (begin = true) или продолжить начатую. Сервер запоминает время начала и только теперь
+     * отдаёт задания. null — контрольная ещё не начата (без begin) или уже сдана.
+     */
+    suspend fun startExam(practice: Practice, begin: Boolean): ExamSession? = guard {
+        val r = api.call(
+            "POST",
+            api.url("api/exam/start"),
+            ExamStartResponse.serializer(),
+            buildJsonObject {
+                put("practice", practice.id)
+                put("begin", begin)
+            },
+        )
+        val current = _content.value
+        val starts = if (r.started.isNotBlank()) current.examStarts + (practice.id to r.started) else current.examStarts - practice.id
+        _content.value = current.copy(tasks = current.tasks.filter { it.practice != practice.id } + r.tasks, examStarts = starts)
+        runCatching { cacheFile.writeText(api.json.encodeToString(ContentData.serializer(), _content.value)) }
+        if (r.submitted) {
+            refreshMySubmissions()
+            return@guard null
+        }
+        val started = parseServerInstant(r.started) ?: return@guard null
+        val serverNow = parseServerInstant(r.now)?.toEpochMilli() ?: System.currentTimeMillis()
+        ExamSession(
+            endsAt = if (r.timeLimit > 0) started.plusSeconds(r.timeLimit * 60L) else null,
+            offsetMillis = serverNow - System.currentTimeMillis(),
+        ).also { _examSessions.value = _examSessions.value + (practice.id to it) }
+    }.getOrThrow()
+
+    /** Контрольная сдана — таймер больше не нужен. */
+    fun endExam(practiceId: String) {
+        _examSessions.value = _examSessions.value - practiceId
+    }
+
+    /** Учитель разрешает ученику написать контрольную ещё раз: сданная работа удаляется. */
+    suspend fun resetExam(practiceId: String, studentId: String) = guard {
+        api.send(
+            "POST",
+            api.url("api/exam/reset"),
+            buildJsonObject {
+                put("practice", practiceId)
+                put("student", studentId)
+            },
+        )
+    }.getOrThrow()
 
     // ---------- Проверка ответов ----------
 
@@ -332,6 +395,8 @@ class Repository(private val context: Context) {
             put("published", practice.published)
             put("classes", buildJsonArray { practice.classes.forEach { add(it) } })
             put("deadline", practice.deadline)
+            put("exam", practice.exam)
+            put("timeLimit", if (practice.exam) practice.timeLimit.coerceIn(0, 600) else 0)
             // Новая практика принадлежит этому учителю.
             if (practice.id.isEmpty()) put("owner", _user.value?.id.orEmpty())
         }
@@ -661,7 +726,7 @@ class Repository(private val context: Context) {
         if (user == null || user.isTeacher) return data
         val practices = data.practices.filter { it.isFor(user.group) }
         val ids = practices.map { it.id }.toSet()
-        return ContentData(practices, data.tasks.filter { it.practice in ids }, data.notes, data.variants)
+        return data.copy(practices = practices, tasks = data.tasks.filter { it.practice in ids })
     }
 
     private fun loadCache(): ContentData = runCatching {
