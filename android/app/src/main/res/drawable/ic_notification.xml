@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Значок в строке уведомлений: колба, как на иконке приложения. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="60"
+    android:viewportHeight="60">
+    <group
+        android:translateX="-24"
+        android:translateY="-24">
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M46,26h16v4h-2v14.5l17.2,29.8c1.9,3.3 -0.5,7.7 -4.4,7.7H35.2c-3.9,0 -6.3,-4.4 -4.4,-7.7L48,44.5V30h-2z" />
+    </group>
+</vector>

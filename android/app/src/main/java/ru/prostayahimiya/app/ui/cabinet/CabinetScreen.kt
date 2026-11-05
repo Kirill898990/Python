@@ -47,6 +47,7 @@ import ru.prostayahimiya.app.ui.components.ErrorBox
 import ru.prostayahimiya.app.ui.components.GradeBadge
 import ru.prostayahimiya.app.ui.components.Load
 import ru.prostayahimiya.app.ui.components.LoadingBox
+import ru.prostayahimiya.app.ui.components.NotificationsSettingCard
 import ru.prostayahimiya.app.ui.components.SectionLabel
 import ru.prostayahimiya.app.ui.components.cardBorder
 import ru.prostayahimiya.app.ui.components.cardColors
@@ -80,6 +81,7 @@ fun CabinetScreen(repository: Repository, onBack: () -> Unit, onOpenSubmission: 
                 modifier = Modifier.fillMaxSize(),
             ) {
                 user?.let { item { ProfileCard(it, teacherName) } }
+                item { NotificationsSettingCard(repository, teacher = user?.isTeacher == true) }
 
                 item { SectionLabel("Мои работы") }
                 when (val state = loader.state) {

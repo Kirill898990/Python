@@ -1,5 +1,8 @@
 package ru.prostayahimiya.app.data
 
+import java.time.ZoneId
+import java.time.LocalDate
+import java.time.Duration
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -683,6 +686,151 @@ class Repository(private val context: Context) {
     /** Пересчитывает значок «новые сообщения». Без интернета оставляет прежнее число. */
     suspend fun refreshUnreadChats() {
         runCatching { chatThreads() }.onSuccess { list -> _unreadChats.value = list.count { it.unread } }
+    }
+
+    // ---------- Уведомления ----------
+
+    private val appPrefs = context.getSharedPreferences("app", Context.MODE_PRIVATE)
+
+    /** Показывать ли уведомления (переключатель в личном кабинете). */
+    var notificationsEnabled: Boolean
+        get() = appPrefs.getBoolean("notifications", true)
+        set(value) = appPrefs.edit { putBoolean("notifications", value) }
+
+    /** Уже спрашивали, включить ли уведомления (карточка на главной больше не нужна). */
+    var notificationsAsked: Boolean
+        get() = appPrefs.getBoolean("notifications_asked", false)
+        set(value) = appPrefs.edit { putBoolean("notifications_asked", value) }
+
+    /** Экран, который нужно открыть по нажатию на уведомление (адрес в AppNavigation). */
+    val openRequest = MutableStateFlow<String?>(null)
+
+    private fun notifyPrefs() = context.getSharedPreferences("notify_${_user.value?.id ?: "guest"}", Context.MODE_PRIVATE)
+
+    /**
+     * Что нового с прошлой проверки (для уведомлений). Метки «что уже видели» хранятся на телефоне;
+     * при самой первой проверке только запоминаем, что есть сейчас, чтобы не завалить старыми новостями.
+     */
+    suspend fun checkUpdates(): List<Notice> {
+        val me = _user.value ?: return emptyList()
+        val p = notifyPrefs()
+        val notices = mutableListOf<Notice>()
+        val stamps = mutableMapOf<String, String>()
+
+        /** Записи новее метки [key] по полю [field], новые сверху. */
+        suspend fun <T> fresh(
+            key: String,
+            collection: String,
+            field: String,
+            filter: String,
+            serializer: kotlinx.serialization.KSerializer<T>,
+            expand: String? = null,
+            stamp: (T) -> String,
+        ): List<T> {
+            val cursor = p.getString(key, null)
+            val query = buildMap {
+                put("filter", if (cursor == null) filter else "($filter) && $field > ${quote(cursor)}")
+                put("sort", "-$field")
+                put("perPage", if (cursor == null) "1" else "50")
+                put("skipTotal", "1")
+                expand?.let { put("expand", it) }
+            }
+            val items = api.call("GET", api.url("api/collections/$collection/records", query), Page.serializer(serializer)).items
+            val newest = items.maxOfOrNull(stamp)
+            if (newest != null) stamps[key] = newest else if (cursor == null) stamps[key] = ""
+            return if (cursor == null) emptyList() else items
+        }
+
+        var known: Set<String>? = null
+        var reminded: Set<String>? = null
+        if (!me.isTeacher) {
+            // Новые практики и контрольные своего класса.
+            val practices = api.listAll("practices", Practice.serializer())
+                .filter { it.published && it.isFor(me.group) && it.isAssignedTo(me.group) }
+            val before = p.getStringSet("known", null)
+            if (before != null) {
+                practices.filter { it.id !in before }.forEach { pr ->
+                    notices += Notice(
+                        NoticeChannel.PRACTICES,
+                        "practice-${pr.id}",
+                        if (pr.exam) "Новая контрольная" else "Новая практика",
+                        pr.fullTitle + (pr.deadlineInstant?.let { " · сдать до ${formatDay(it)}" } ?: ""),
+                        "practice/${pr.id}",
+                    )
+                }
+            }
+            known = before.orEmpty() + practices.map { it.id }
+
+            // Оценки.
+            fresh("graded", "submissions", "gradedAt", "student = \"${me.id}\" && grade > 0", Submission.serializer()) { it.gradedAt }
+                .forEach { s ->
+                    notices += Notice(
+                        NoticeChannel.GRADES,
+                        "grade-${s.id}",
+                        "Работа проверена: оценка ${s.grade}",
+                        s.practiceTitle + if (s.comment.isNotBlank()) "\n💬 ${s.comment}" else "",
+                        "submission/${s.id}",
+                    )
+                }
+
+            // Срок сдачи завтра или сегодня, а работа не сдана. Напоминаем один раз.
+            val now = Instant.now()
+            val wasReminded = p.getStringSet("reminded", emptySet()).orEmpty()
+            val soon = practices.filter { pr ->
+                val d = pr.deadlineInstant
+                d != null && d.isAfter(now) && d.isBefore(now.plus(Duration.ofHours(30))) && pr.id !in wasReminded
+            }
+            if (soon.isNotEmpty()) {
+                val submitted = api.listAll("submissions", Submission.serializer(), filter = "student = \"${me.id}\"").map { it.practice }.toSet()
+                val today = LocalDate.now()
+                soon.filter { it.id !in submitted }.forEach { pr ->
+                    val day = pr.deadlineInstant!!.atZone(ZoneId.systemDefault()).toLocalDate()
+                    notices += Notice(
+                        NoticeChannel.DEADLINES,
+                        "deadline-${pr.id}",
+                        if (day == today) "Сегодня последний день сдачи" else "Завтра последний день сдачи",
+                        pr.fullTitle,
+                        "practice/${pr.id}",
+                    )
+                }
+                reminded = wasReminded + soon.map { it.id }
+            }
+        } else {
+            // Учителю: новые работы на проверку.
+            val works = fresh("works", "submissions", "created", "grade = 0", Submission.serializer(), expand = "student") { it.created }
+            if (works.isNotEmpty()) {
+                val names = works.mapNotNull { it.studentUser?.name }.distinct()
+                notices += Notice(
+                    NoticeChannel.WORKS,
+                    "works",
+                    if (works.size == 1) "Новая работа на проверку" else "Новые работы на проверку: ${works.size}",
+                    if (works.size == 1) "${names.firstOrNull() ?: "Ученик"} — ${works[0].practiceTitle}"
+                    else names.take(5).joinToString(", ") + if (names.size > 5) " и другие" else "",
+                    "admin",
+                )
+            }
+        }
+
+        // Сообщения в чате (свои не считаем).
+        val messages = fresh("messages", "messages", "created", "author != \"${me.id}\"", Message.serializer()) { it.created }
+        if (messages.isNotEmpty()) {
+            val last = messages.first()
+            val where = if (last.kind == ChatRoom.CLASS) "чат ${last.group}" else "личное сообщение"
+            notices += Notice(
+                NoticeChannel.CHAT,
+                "chat",
+                if (messages.size == 1) "${last.authorName} · $where" else "Новые сообщения: ${messages.size}",
+                if (messages.size == 1) last.text else "${last.authorName}: ${last.text}",
+                "chats",
+            )
+        }
+
+        p.edit {
+            stamps.forEach { (k, v) -> putString(k, v) }
+            known?.let { putStringSet("known", it) }
+            reminded?.let { putStringSet("reminded", it) }
+        }
+        return notices
     }
 
     // ---------- Внутреннее ----------

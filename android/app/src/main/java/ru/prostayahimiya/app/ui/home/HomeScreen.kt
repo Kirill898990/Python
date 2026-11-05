@@ -63,6 +63,7 @@ import ru.prostayahimiya.app.data.Repository
 import ru.prostayahimiya.app.data.Subject
 import ru.prostayahimiya.app.data.User
 import ru.prostayahimiya.app.ui.components.EmojiBadge
+import ru.prostayahimiya.app.ui.components.NotificationsPrompt
 import ru.prostayahimiya.app.ui.components.OfflineBanner
 import ru.prostayahimiya.app.ui.components.SectionLabel
 import ru.prostayahimiya.app.ui.components.cardBorder
@@ -134,6 +135,7 @@ fun HomeScreen(
                 if (contentError != null) {
                     item { OfflineBanner(contentError.orEmpty(), ::refresh) }
                 }
+                item { NotificationsPrompt(repository, teacher = user?.isTeacher == true) }
                 update?.let { release ->
                     item {
                         Card(

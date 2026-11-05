@@ -60,6 +60,14 @@ fun AppNavigation(repository: Repository) {
         if (repository.user.value?.isTeacher != true) repository.refreshMySubmissions()
     }
 
+    // Нажали на уведомление — открываем нужный экран (практику, работу, чат или панель учителя).
+    val openRequest by repository.openRequest.collectAsState()
+    LaunchedEffect(openRequest) {
+        val route = openRequest ?: return@LaunchedEffect
+        repository.openRequest.value = null
+        runCatching { nav.navigate(route) }
+    }
+
     NavHost(navController = nav, startDestination = "home") {
         composable("home") {
             HomeScreen(
