@@ -183,6 +183,17 @@ TURNCONF
   fi
 fi
 
+# Защита входа на сам сервер (SSH) от подбора пароля: fail2ban на время блокирует адреса,
+# с которых много раз ввели неверный пароль. Работает сам, настраивать ничего не нужно.
+if ! command -v fail2ban-client >/dev/null 2>&1; then
+  say "Ставлю защиту входа на сервер (fail2ban)"
+  apt-get install -y -qq fail2ban >/dev/null 2>&1 || echo "  Не получилось установить fail2ban — сайт это не затрагивает."
+fi
+if command -v fail2ban-client >/dev/null 2>&1; then
+  systemctl enable fail2ban >/dev/null 2>&1 || true
+  systemctl restart fail2ban >/dev/null 2>&1 || true
+fi
+
 # Открываем порты 80 и 443, если на сервере включён брандмауэр.
 if [ "$UFW_ON" = 1 ]; then
   ufw allow 80/tcp >/dev/null
