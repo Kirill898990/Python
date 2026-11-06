@@ -9,7 +9,8 @@
 # Что делает:
 #   1. скачивает PocketBase и файлы проекта с GitHub (база, правила доступа, сайт);
 #   2. настраивает автозапуск, сервер будет работать сам, даже после перезагрузки;
-#   3. PocketBase сам получает бесплатный сертификат https для домена;
+#   3. PocketBase сам получает бесплатный сертификат https для домена,
+#      а если на сервере стоит Caddy (его ставит мессенджер beemes) — сайт работает за ним, https получает Caddy;
 #   4. создаёт администратора (если указаны почта и пароль).
 #
 # Повторный запуск обновляет сайт и миграции. База с учениками и оценками (pb_data) не трогается.
@@ -25,6 +26,9 @@ BRANCH="${BRANCH:-main}"
 # Точная версия кода (номер коммита). Её передаёт автообновление из GitHub, чтобы поставить ровно то, что слили.
 REF="${REF:-}"
 DIR="${DIR:-/opt/pocketbase}"
+SYSTEMD_DIR="${SYSTEMD_DIR:-/etc/systemd/system}"
+CADDY_DIR="${CADDY_DIR:-/etc/caddy}"
+TURN_CONF="${TURN_CONF:-/etc/turnserver.conf}"
 
 say() { printf '\n\033[1;32m==> %s\033[0m\n' "$1"; }
 fail() { printf '\n\033[1;31mОшибка: %s\033[0m\n' "$1" >&2; exit 1; }
@@ -92,8 +96,14 @@ if [ -n "$ADMIN_EMAIL" ]; then
   "$DIR/pocketbase" superuser upsert "$ADMIN_EMAIL" "$ADMIN_PASSWORD" --dir "$DIR/pb_data" >/dev/null
 fi
 
+# На сервере есть Caddy с папкой сайтов (её создаёт установка beemes)? Тогда порты 80 и 443 держит Caddy,
+# а сайт слушает только 127.0.0.1:8090 — снаружи к нему можно попасть только через Caddy.
+BEHIND_CADDY=0
+if [ -d "$CADDY_DIR/sites" ] && command -v caddy >/dev/null 2>&1; then BEHIND_CADDY=1; fi
+if [ "$BEHIND_CADDY" = 1 ]; then LISTEN="--http 127.0.0.1:8090"; else LISTEN="$DOMAIN www.$DOMAIN"; fi
+
 say "Настраиваю автозапуск"
-cat > /etc/systemd/system/pocketbase.service <<EOF
+cat > "$SYSTEMD_DIR/pocketbase.service" <<EOF
 [Unit]
 Description=PocketBase для приложения «Простая химия»
 After=network-online.target
@@ -104,7 +114,7 @@ Type=simple
 User=root
 WorkingDirectory=$DIR
 EnvironmentFile=-$DIR/server.env
-ExecStart=$DIR/pocketbase serve $DOMAIN www.$DOMAIN --dir $DIR/pb_data --migrationsDir $DIR/pb_migrations --hooksDir $DIR/pb_hooks --publicDir $DIR/pb_public
+ExecStart=$DIR/pocketbase serve $LISTEN --dir $DIR/pb_data --migrationsDir $DIR/pb_migrations --hooksDir $DIR/pb_hooks --publicDir $DIR/pb_public
 Restart=always
 RestartSec=5
 LimitNOFILE=4096
@@ -123,6 +133,7 @@ set_env() {
   chmod 600 "$ENV_FILE"
 }
 set_env SITE_URL "https://$DOMAIN"
+set_env BEHIND_PROXY "$BEHIND_CADDY"
 
 UFW_ON=0
 if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then UFW_ON=1; fi
@@ -133,6 +144,8 @@ if [ "${TURN:-1}" != "0" ]; then
   say "Настраиваю сервер для звонков (coturn)"
   if apt-get install -y -qq coturn >/dev/null 2>&1; then
     TURN_SECRET="$(grep '^TURN_SECRET=' "$ENV_FILE" | cut -d= -f2- || true)"
+    # Если TURN-сервер уже настроил beemes — берём его секрет, чтобы звонки работали в обоих.
+    [ -n "$TURN_SECRET" ] || TURN_SECRET="$(sed -n 's/^static-auth-secret=//p' "$TURN_CONF" 2>/dev/null | head -n 1 || true)"
     [ -n "$TURN_SECRET" ] || TURN_SECRET="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
     set_env TURN_SECRET "$TURN_SECRET"
     set_env TURN_HOST "$DOMAIN"
@@ -144,7 +157,7 @@ if [ "${TURN:-1}" != "0" ]; then
       10.* | 192.168.* | 172.1[6-9].* | 172.2[0-9].* | 172.3[01].*)
         if [ -n "$PUBLIC_IP" ] && [ "$PUBLIC_IP" != "$LOCAL_IP" ]; then EXTERNAL="external-ip=$PUBLIC_IP/$LOCAL_IP"; fi ;;
     esac
-    cat > /etc/turnserver.conf <<TURNCONF
+    cat > "$TURN_CONF" <<TURNCONF
 # Создано install.sh для звонков в курсе. Пароли проверяются по секрету из $ENV_FILE.
 listening-port=3478
 fingerprint
@@ -169,8 +182,8 @@ denied-peer-ip=::1
 syslog
 $EXTERNAL
 TURNCONF
-    chmod 640 /etc/turnserver.conf
-    chgrp turnserver /etc/turnserver.conf 2>/dev/null || true
+    chmod 640 "$TURN_CONF"
+    chgrp turnserver "$TURN_CONF" 2>/dev/null || true
     if [ -f /etc/default/coturn ]; then sed -i 's/^#*TURNSERVER_ENABLED=.*/TURNSERVER_ENABLED=1/' /etc/default/coturn; fi
     systemctl enable coturn >/dev/null 2>&1 || true
     systemctl restart coturn 2>/dev/null || echo "  Сервер для звонков не запустился: звонки будут работать, только если телефоны соединятся напрямую."
@@ -205,6 +218,20 @@ systemctl enable pocketbase >/dev/null 2>&1
 systemctl restart pocketbase
 sleep 3
 systemctl is-active --quiet pocketbase || fail "сервер не запустился. Подробности: journalctl -u pocketbase -n 50"
+
+if [ "$BEHIND_CADDY" = 1 ]; then
+  say "Добавляю сайт в Caddy (https)"
+  cat > "$CADDY_DIR/sites/school.caddy" <<EOF
+# Сайт «Простая химия» (создано server/install.sh). PocketBase работает на 127.0.0.1:8090.
+$DOMAIN, www.$DOMAIN {
+	@compress not path /api/realtime
+	encode @compress zstd gzip
+	reverse_proxy 127.0.0.1:8090
+}
+EOF
+  caddy validate --config "$CADDY_DIR/Caddyfile" --adapter caddyfile >/dev/null 2>&1 || fail "ошибка в настройках Caddy: caddy validate --config $CADDY_DIR/Caddyfile"
+  systemctl reload caddy 2>/dev/null || systemctl restart caddy 2>/dev/null || true
+fi
 
 # Проверяем, что домен уже указывает на этот сервер.
 # «|| true»: если домен ещё не настроен, проверка просто ничего не найдёт, а скрипт не остановится.

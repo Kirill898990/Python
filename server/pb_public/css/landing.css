@@ -138,7 +138,7 @@ a { color: var(--brand); }
 .checks li { position: relative; padding-left: 34px; font-size: 18px; }
 .checks li::before { content: "✓"; position: absolute; left: 0; top: 1px; width: 24px; height: 24px; border-radius: 50%; background: var(--brand); color: #fff; font-size: 14px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
 
-.install-grid { display: grid; grid-template-columns: 1fr 1fr 0.8fr; gap: 16px; align-items: start; }
+.install-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; align-items: start; }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 20px; padding: 22px; }
 .card h3 { margin: 0 0 12px; font-size: 20px; }
 .steps { margin: 0; padding-left: 22px; display: grid; gap: 8px; }

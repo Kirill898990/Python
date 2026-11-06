@@ -1,0 +1,48 @@
+{
+  "name": "prostaya-himiya-desktop",
+  "productName": "Простая химия",
+  "version": "1.0.0",
+  "description": "Простая химия — химия и биология для 5–11 классов (приложение для Windows)",
+  "author": "Бастриков Кирилл",
+  "homepage": "https://xn--h1aaafbiaikhnfkx.xn--p1ai/",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node test.js",
+    "dist": "electron-builder --win nsis --x64 --publish never"
+  },
+  "devDependencies": {
+    "electron": "44.9.3",
+    "electron-builder": "26.18.0"
+  },
+  "build": {
+    "appId": "ru.prostayahimiya.desktop",
+    "productName": "Простая химия",
+    "copyright": "© Бастриков Кирилл",
+    "artifactName": "ProstayaHimiya-Setup.${ext}",
+    "directories": {
+      "buildResources": "build",
+      "output": "dist"
+    },
+    "files": ["main.js", "offline.html", "icon.png", "package.json"],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "icon": "build/icon.ico",
+      "executableName": "ProstayaHimiya"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Простая химия",
+      "uninstallDisplayName": "Простая химия",
+      "language": "1049",
+      "multiLanguageInstaller": false,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico"
+    }
+  }
+}
