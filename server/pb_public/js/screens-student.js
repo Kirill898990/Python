@@ -28,7 +28,7 @@
     // вместо «Класс» ученик вводит код, а класс сервер возьмёт из кода.
     let teachers = [];
     let teachersLoaded = false;
-    const values = { name: "", group: "", classCode: "", teacher: "", username: "", password: "", password2: "" };
+    const values = { name: "", group: "", classCode: "", teacher: "", username: "", password: "", password2: "", privacy: false };
     const formBox = h("div", { class: "auth-form" });
     Api.registrationInfo().then((info) => {
       teachers = info.teachers;
@@ -67,6 +67,21 @@
         fields.teacher = teacherField;
       }
 
+      // Согласие с политикой конфиденциальности — только при регистрации.
+      if (register) {
+        const box = h("input", { type: "checkbox", id: "privacy-consent", checked: values.privacy });
+        const hint = h("div", { class: "field-support err", role: "alert" });
+        box.addEventListener("change", () => { values.privacy = box.checked; if (box.checked) hint.textContent = ""; });
+        const row = h("div", { class: "consent" },
+          h("label", { class: "check-row", for: "privacy-consent" }, box,
+            h("span", { class: "small" }, "Я соглашаюсь с ",
+              h("a", { href: "privacy.html", target: "_blank", rel: "noopener" }, "политикой конфиденциальности"),
+              " и даю согласие на обработку моих данных")),
+          hint);
+        row.setError = (msg) => { hint.textContent = msg || ""; };
+        fields.privacy = row;
+      }
+
       async function submit() {
         if (busy) return;
         Object.values(fields).forEach((f) => f.setError(null));
@@ -82,15 +97,16 @@
         if (values.username.trim().length < 3) errors.username = "Логин: не меньше 3 символов";
         if (values.password.length < 6) errors.password = "Пароль: не меньше 6 символов";
         if (register && values.password2 !== values.password) errors.passwordConfirm = "Пароли не совпадают";
+        if (register && !values.privacy) errors.privacy = "Поставь галочку: без согласия с политикой конфиденциальности зарегистрироваться нельзя";
         if (Object.keys(errors).length) return showErrors(errors);
         busy = true;
         replace(submitBtn, h("span", { class: "spinner spinner-sm" }));
         try {
           if (register && asTeacher) {
-            await Api.register(values.name, "", values.username, values.password, values.password2, { wantsTeacher: true });
+            await Api.register(values.name, "", values.username, values.password, values.password2, { wantsTeacher: true, privacyAccepted: true });
           } else if (register) {
             await Api.register(values.name, codeRequired ? "" : values.group, values.username, values.password, values.password2,
-              { teacher: values.teacher, classCode: codeRequired ? values.classCode : "" });
+              { teacher: values.teacher, classCode: codeRequired ? values.classCode : "", privacyAccepted: true });
           } else {
             await Api.login(values.username, values.password);
           }
@@ -141,6 +157,7 @@
           supporting: register ? "Не меньше 6 символов" : null, onenter: register ? null : submit,
         }),
         register && make("password2", { label: "Повтори пароль", type: "password", autocomplete: "new-password", onenter: submit }),
+        fields.privacy,
         error,
         submitBtn,
         h("p", { class: "tiny muted center" }, !register

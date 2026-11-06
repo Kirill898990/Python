@@ -112,11 +112,13 @@ class Repository(private val context: Context) {
         classCode: String = "",
         teacher: String = "",
         wantsTeacher: Boolean = false,
+        privacyAccepted: Boolean = false,
     ) {
         api.send(
             "POST",
             api.url("api/collections/users/records"),
             buildJsonObject {
+                put("privacyAccepted", privacyAccepted)
                 put("name", name.trim())
                 put("group", group.trim().uppercase())
                 put("classCode", classCode.trim().uppercase())

@@ -1,5 +1,14 @@
 package ru.prostayahimiya.app.ui.auth
 
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.material3.Checkbox
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withLink
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -86,6 +95,7 @@ fun AuthScreen(repository: Repository) {
     var username by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
     var password2 by rememberSaveable { mutableStateOf("") }
+    var privacy by rememberSaveable { mutableStateOf(false) }
     var loading by rememberSaveable { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var fieldErrors by remember { mutableStateOf(mapOf<String, String>()) }
@@ -106,6 +116,7 @@ fun AuthScreen(repository: Repository) {
             if (username.trim().length < 3) put("username", "Логин: не меньше 3 символов")
             if (password.length < 6) put("password", "Пароль: не меньше 6 символов")
             if (registerMode && password2 != password) put("passwordConfirm", "Пароли не совпадают")
+            if (registerMode && !privacy) put("privacy", "Поставь галочку: без согласия с политикой конфиденциальности зарегистрироваться нельзя")
         }
         if (fieldErrors.isNotEmpty()) return
         loading = true
@@ -113,12 +124,13 @@ fun AuthScreen(repository: Repository) {
             try {
                 if (registerMode) {
                     if (asTeacher) {
-                        repository.register(name, "", username, password, password2, wantsTeacher = true)
+                        repository.register(name, "", username, password, password2, wantsTeacher = true, privacyAccepted = true)
                     } else {
                         repository.register(
                             name, if (codeRequired) "" else group, username, password, password2,
                             classCode = if (codeRequired) classCode else "",
                             teacher = teacherId,
+                            privacyAccepted = true,
                         )
                     }
                 } else {
@@ -231,6 +243,15 @@ fun AuthScreen(repository: Repository) {
                         value = password2, onChange = { password2 = it }, label = "Повтори пароль",
                         error = fieldErrors["passwordConfirm"], password = true,
                         imeAction = ImeAction.Done, onDone = ::submit,
+                    )
+                }
+
+                if (registerMode) {
+                    PrivacyConsent(
+                        checked = privacy,
+                        onChange = { privacy = it; fieldErrors = fieldErrors - "privacy" },
+                        error = fieldErrors["privacy"],
+                        onOpenPolicy = { context.openLink(Content.PRIVACY_URL) },
                     )
                 }
 
@@ -390,6 +411,36 @@ fun PendingTeacherScreen(repository: Repository) {
                 }
             }
             TextButton(onClick = repository::logout) { Text("Выйти") }
+        }
+    }
+}
+
+/** Галочка «Я соглашаюсь с политикой конфиденциальности» (без неё зарегистрироваться нельзя). */
+@Composable
+private fun PrivacyConsent(checked: Boolean, onChange: (Boolean) -> Unit, error: String?, onOpenPolicy: () -> Unit) {
+    val linkColor = MaterialTheme.colorScheme.primary
+    val text = buildAnnotatedString {
+        append("Я соглашаюсь с ")
+        withLink(
+            LinkAnnotation.Clickable(
+                tag = "privacy",
+                styles = TextLinkStyles(SpanStyle(color = linkColor, textDecoration = TextDecoration.Underline)),
+            ) { onOpenPolicy() },
+        ) { append("политикой конфиденциальности") }
+        append(" и даю согласие на обработку моих данных")
+    }
+    Column {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .toggleable(value = checked, role = Role.Checkbox, onValueChange = onChange),
+        ) {
+            Checkbox(checked = checked, onCheckedChange = null)
+            Text(text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 8.dp))
+        }
+        if (error != null) {
+            Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(start = 40.dp))
         }
     }
 }
