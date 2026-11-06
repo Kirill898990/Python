@@ -89,6 +89,14 @@ fun HomeCourses(courses: List<Enrollment>, onOpenCourse: (String) -> Unit) {
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                         )
+                        if (en.endingSoon) {
+                            Text(
+                                "⏳ Осталось ${en.leftText} — продлите, чтобы не потерять доступ",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
                     }
                     Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
                 }
@@ -176,6 +184,8 @@ fun StudentCourseScreen(
                             }
                             return@LazyColumn
                         }
+                        if (en.endingSoon) item { RenewBanner(repository, en) }
+                        item { CallButtons(repository, en, "учителю") }
                         item {
                             OutlinedButton(onClick = { onOpenChat(ChatRoom.course(en.id), "Чат с учителем курса") }, modifier = Modifier.fillMaxWidth()) {
                                 Text("💬 Чат с учителем")
@@ -189,6 +199,7 @@ fun StudentCourseScreen(
                             PracticeRow(p, submissions.firstOrNull { it.practice == p.id }, showStatus = true) { onOpenPractice(p.id) }
                         }
                         item { TextButton(onClick = onOpenTrainer) { Text("🎯 Тренажёр") } }
+                        item { ReviewCard(repository, en) }
                     }
                 }
             }
@@ -305,6 +316,7 @@ fun TeacherCourseScreen(
                                 }
                             }
                         }
+                        if (en.isLive) item { CallButtons(repository, en, "ученику") }
                         item {
                             OutlinedButton(onClick = { onOpenChat(ChatRoom.course(en.id), student?.name ?: "Ученик курса") }, modifier = Modifier.fillMaxWidth()) {
                                 Text("💬 Чат с учеником")

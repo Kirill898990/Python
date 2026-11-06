@@ -25,6 +25,8 @@ import ru.prostayahimiya.app.ui.admin.PracticeEditorScreen
 import ru.prostayahimiya.app.ui.auth.AuthScreen
 import ru.prostayahimiya.app.ui.auth.PendingTeacherScreen
 import ru.prostayahimiya.app.ui.cabinet.CabinetScreen
+import ru.prostayahimiya.app.ui.cabinet.OrdersScreen
+import ru.prostayahimiya.app.ui.course.IncomingCallWatcher
 import ru.prostayahimiya.app.ui.cabinet.SubmissionScreen
 import ru.prostayahimiya.app.ui.chat.ChatListScreen
 import ru.prostayahimiya.app.ui.chat.ChatScreen
@@ -70,6 +72,9 @@ fun AppNavigation(repository: Repository) {
         repository.openRequest.value = null
         runCatching { nav.navigate(route) }
     }
+
+    // Входящий звонок по курсу — окно «Ответить / Отклонить» поверх любого экрана.
+    IncomingCallWatcher(repository)
 
     NavHost(navController = nav, startDestination = "home") {
         composable("home") {
@@ -143,7 +148,11 @@ fun AppNavigation(repository: Repository) {
                 repository = repository,
                 onBack = dropUnlessResumed { nav.popBackStack() },
                 onOpenSubmission = { id -> nav.navigate("submission/$id") },
+                onOpenOrders = { nav.navigate("orders") },
             )
+        }
+        composable("orders") {
+            OrdersScreen(repository = repository, onBack = dropUnlessResumed { nav.popBackStack() })
         }
         composable("submission/{id}") { entry ->
             SubmissionScreen(

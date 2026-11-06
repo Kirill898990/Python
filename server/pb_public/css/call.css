@@ -1,0 +1,55 @@
+/* Страница звонка (call.html). Всегда тёмная: так видео смотрится лучше и меньше слепит. */
+:root { color-scheme: dark; --bg: #101413; --fg: #f1f4f2; --muted: #b9c4be; --btn: rgba(255, 255, 255, 0.14); --red: #e5383b; --green: #1e9e57; }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font-family: Roboto, system-ui, -apple-system, "Segoe UI", sans-serif; }
+.call { position: fixed; inset: 0; overflow: hidden; display: flex; flex-direction: column; align-items: center; }
+.call-remote { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #000; opacity: 0; transition: opacity 0.3s; }
+.has-video .call-remote { opacity: 1; }
+.call-local {
+  position: absolute; right: 14px; top: calc(14px + env(safe-area-inset-top)); width: 28vw; max-width: 160px; aspect-ratio: 3 / 4;
+  object-fit: cover; border-radius: 14px; background: #222; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5); z-index: 3;
+}
+.call-local.mirror { transform: scaleX(-1); }
+.call-local.off { opacity: 0.25; }
+.call-top { position: relative; z-index: 2; margin-top: calc(14vh + env(safe-area-inset-top)); text-align: center; padding: 0 16px; transition: margin 0.3s; }
+.has-video .call-top {
+  align-self: flex-start; text-align: left; margin-top: calc(16px + env(safe-area-inset-top));
+  padding-right: calc(min(28vw, 160px) + 28px); text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
+}
+.has-video .call-name { font-size: 20px; }
+.call-avatar {
+  width: 112px; height: 112px; margin: 0 auto 16px; border-radius: 50%; display: grid; place-items: center;
+  background: #187a5f; color: #fff; font-size: 48px; font-weight: 700;
+}
+.has-video .call-avatar { display: none; }
+.call-name { margin: 0; font-size: 26px; font-weight: 700; }
+.call-status { margin: 8px 0 0; color: var(--muted); font-size: 16px; font-variant-numeric: tabular-nums; }
+.call-bar {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; display: flex; justify-content: center; gap: 18px;
+  padding: 20px 16px calc(28px + env(safe-area-inset-bottom)); background: linear-gradient(transparent, rgba(0, 0, 0, 0.55));
+}
+.call-bar[hidden] { display: none; }
+.call-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 6px; border: none; background: none; color: var(--fg);
+  font: inherit; font-size: 12px; cursor: pointer; padding: 0;
+}
+.call-btn[hidden] { display: none; }
+.call-ico { width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; font-size: 26px; background: var(--btn); }
+.call-btn.off .call-ico { background: #fff; filter: grayscale(1); }
+.call-btn.off .call-label { text-decoration: line-through; }
+.call-hangup .call-ico { background: var(--red); transform: rotate(135deg); }
+.call-btn:focus-visible .call-ico { outline: 3px solid #7dd8b5; outline-offset: 2px; }
+.call-end { position: absolute; bottom: calc(40px + env(safe-area-inset-bottom)); left: 16px; right: 16px; display: grid; gap: 12px; justify-items: center; z-index: 3; }
+.call-end[hidden] { display: none; }
+.call-pill {
+  min-width: 240px; min-height: 48px; padding: 0 24px; border-radius: 999px; border: none; cursor: pointer;
+  background: var(--green); color: #fff; font: inherit; font-size: 16px; font-weight: 600;
+}
+.call-pill[hidden] { display: none; }
+.call-pill-light { background: var(--btn); color: var(--fg); }
+.call-unmute { position: absolute; z-index: 4; top: 50%; left: 50%; transform: translate(-50%, -50%); }
+.ended .call-avatar { background: #3a4440; }
+@media (max-width: 400px) {
+  .call-bar { gap: 8px; }
+  .call-ico { width: 56px; height: 56px; font-size: 22px; }
+}

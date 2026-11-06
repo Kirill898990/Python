@@ -4,12 +4,13 @@
 //
 // POST /api/shop/checkout   — оформить заказ: сервер сам берёт цены из базы, создаёт заказ и платёж ЮKassa
 //                             и возвращает адрес страницы оплаты (СБП, карта, SberPay — что включено в ЮKassa).
+// POST /api/shop/promo     — проверить промокод и посчитать скидку (окончательно сервер считает её ещё раз при оплате).
 // GET  /api/shop/orders/:id — статус заказа (если ещё ждём оплату, сервер спрашивает ЮKassa).
 // POST /api/shop/yookassa   — уведомления ЮKassa (адрес вписывается в личном кабинете ЮKassa).
 //                             Уведомлению на слово не верим: статус платежа сервер перепроверяет у ЮKassa.
 
 routerAdd("POST", "/api/shop/checkout", (e) => {
-  const { settings, yookassa } = require(`${__hooks}/shop_lib.js`)
+  const { settings, yookassa, priceItems, applyPromo } = require(`${__hooks}/shop_lib.js`)
   const auth = e.auth
   if (auth.getBool("isTeacher")) throw new BadRequestError("Курсы покупают ученики. Войдите в аккаунт ученика.")
   const s = settings(e.app)
@@ -24,48 +25,16 @@ routerAdd("POST", "/api/shop/checkout", (e) => {
   }
 
   const subjects = { chemistry: "химия", biology: "биология" }
-  const items = []
-  const seen = {}
-  raw.forEach((x) => {
-    let p
-    try {
-      p = e.app.findRecordById("products", String((x && x.product) || "").replace(/[^a-z0-9]/gi, ""))
-    } catch (_) {}
-    if (!p || !p.getBool("active")) throw new BadRequestError("Одного из товаров больше нет в продаже. Обновите корзину.")
-    const json = (field) => { try { return JSON.parse(p.getString(field) || "[]") || [] } catch (_) { return [] } }
-    const allowedSubjects = json("subjects")
-    const allowedExams = json("exams")
-    const plans = json("plans")
-    const subject = String(x.subject || "")
-    const exam = String(x.exam || "")
-    if (allowedSubjects.length && allowedSubjects.indexOf(subject) < 0) throw new BadRequestError("Выберите предмет для курса")
-    if (allowedExams.length && allowedExams.indexOf(exam) < 0) throw new BadRequestError("Выберите экзамен для курса")
-    // Срок и цену берём из товара, а не из запроса.
-    const plan = plans.find((pl) => pl && pl.days === parseInt(x.days, 10))
-    if (plans.length && !plan) throw new BadRequestError("Выберите срок подписки")
-    const days = plan ? plan.days : 30
-    const price = plan ? Number(plan.price) : p.getFloat("price")
-    // Учитель: из списка учителей курса, а если список пуст — любой подтверждённый учитель.
-    const teacherId = String(x.teacher || "").replace(/[^a-z0-9]/gi, "")
-    const allowedTeachers = p.getStringSlice("teachers")
-    let teacher = null
-    try { teacher = e.app.findRecordById("users", teacherId) } catch (_) {}
-    if (!teacher || !teacher.getBool("isTeacher") || (allowedTeachers.length && allowedTeachers.indexOf(teacherId) < 0)) {
-      throw new BadRequestError("Выберите учителя")
-    }
-    const key = [p.id, subject, exam, teacherId].join("|")
-    if (seen[key]) throw new BadRequestError("Один и тот же курс в корзине дважды")
-    seen[key] = true
-    items.push({
-      product: p.id, title: p.getString("title"), price, days,
-      subject, exam, teacher: teacherId, teacherName: teacher.getString("name"),
-    })
-  })
-  const total = items.reduce((sum, it) => sum + it.price, 0)
+  const items = priceItems(e.app, raw)
+  const promo = applyPromo(e.app, body.promo, items, auth.id)
+  const total = promo.total
 
   const order = new Record(e.app.findCollectionByNameOrId("orders"))
   order.set("buyer", auth.id)
   order.set("items", items)
+  order.set("subtotal", promo.subtotal)
+  order.set("discount", promo.discount)
+  order.set("promo", promo.code)
   order.set("total", total)
   order.set("status", "pending")
   order.set("email", email)
@@ -100,6 +69,16 @@ routerAdd("POST", "/api/shop/checkout", (e) => {
   return e.json(200, { order: order.id, url })
 }, $apis.requireAuth("users"))
 
+// Проверить промокод до оплаты: {code, items} → {code, discount, subtotal, total, text}.
+routerAdd("POST", "/api/shop/promo", (e) => {
+  const { priceItems, applyPromo, normalizeCode } = require(`${__hooks}/shop_lib.js`)
+  const body = e.requestInfo().body || {}
+  if (!normalizeCode(body.code)) throw new BadRequestError("Впишите промокод")
+  const items = priceItems(e.app, body.items)
+  if (!items.length) throw new BadRequestError("Корзина пуста")
+  return e.json(200, applyPromo(e.app, body.code, items, e.auth ? e.auth.id : ""))
+})
+
 routerAdd("GET", "/api/shop/orders/{id}", (e) => {
   const { refresh } = require(`${__hooks}/shop_lib.js`)
   let order
@@ -112,6 +91,7 @@ routerAdd("GET", "/api/shop/orders/{id}", (e) => {
   try { items = JSON.parse(order.getString("items") || "[]") || [] } catch (_) {}
   return e.json(200, {
     id: order.id, status, total: order.getFloat("total"), created: order.getString("created"),
+    promo: order.getString("promo"), discount: order.getFloat("discount"),
     items: items.map((it) => ({ title: it.title, price: it.price, subject: it.subject, exam: it.exam, days: it.days, teacherName: it.teacherName })),
   })
 }, $apis.requireAuth("users"))
@@ -129,3 +109,55 @@ routerAdd("POST", "/api/shop/yookassa", (e) => {
   // ЮKassa ждёт ответ 200, иначе будет присылать уведомление повторно.
   return e.json(200, { ok: true })
 })
+
+// Напоминание на почту за сутки до конца курса — со ссылкой «Продлить».
+// Письмо уходит на почту аккаунта (если привязана) или на почту, указанную при покупке. Нужна настроенная почта (SMTP).
+cronAdd("course_reminders", "*/20 * * * *", () => {
+  const { sendMail, mailReady, escapeHtml } = require(`${__hooks}/mail_lib.js`)
+  const { toTime } = require(`${__hooks}/shop_lib.js`)
+  if (!mailReady($app)) return
+  const iso = (t) => new Date(t).toISOString().replace("T", " ")
+  let site = ""
+  try { site = $app.findFirstRecordByFilter("shop_settings", "siteUrl != ''").getString("siteUrl") } catch (_) {}
+  site = (site || $os.getenv("SITE_URL") || "").replace(/\/+$/, "")
+  const subjects = { chemistry: "химия", biology: "биология" }
+  const months = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"]
+  const list = $app.findRecordsByFilter("enrollments", "active = true && expiresAt > {:now} && expiresAt < {:soon}", "expiresAt", 200, 0,
+    { now: iso(Date.now()), soon: iso(Date.now() + 26 * 3600 * 1000) })
+  list.forEach((en) => {
+    const until = en.getString("expiresAt")
+    if (en.getString("remindedFor") === until) return
+    // Сначала отмечаем, потом отправляем — чтобы письмо не ушло дважды.
+    en.set("remindedFor", until)
+    $app.saveNoValidate(en)
+    let student
+    try { student = $app.findRecordById("users", en.getString("student")) } catch (_) { return }
+    let email = student.verified() ? student.email() : ""
+    if (!email) {
+      try {
+        email = $app.findRecordsByFilter("orders", "buyer = {:b} && status = 'paid' && email != ''", "-created", 1, 0, { b: student.id })[0].getString("email")
+      } catch (_) {}
+    }
+    if (!email) return
+    const msk = new Date(toTime(until) + 3 * 3600 * 1000)
+    const pad = (n) => (n < 10 ? "0" : "") + n
+    const when = `${msk.getUTCDate()} ${months[msk.getUTCMonth()]} в ${pad(msk.getUTCHours())}:${pad(msk.getUTCMinutes())} (МСК)`
+    const title = `Подготовка к ${en.getString("exam")} · ${subjects[en.getString("subject")] || en.getString("subject")}`
+    const link = site && en.getString("product") ? `${site}/#/shop/product/${en.getString("product")}` : ""
+    sendMail($app, email, `Курс «${title}» заканчивается завтра`,
+      `<p>Здравствуйте, ${escapeHtml(student.getString("name"))}!</p>` +
+      `<p>Доступ к курсу «${escapeHtml(title)}» открыт до ${when}. Потом задания и чат с учителем закроются.</p>` +
+      (link ? `<p><a href="${link}" style="display:inline-block;padding:10px 18px;background:#187A5F;color:#fff;border-radius:8px;text-decoration:none">Продлить курс</a></p>` +
+        "<p>Если продлить, срок прибавится к оставшимся дням — ничего не потеряется.</p>" : "") +
+      "<p>— beemei, «Простая химия с Ириной»</p>")
+  })
+})
+
+// Промокод в веб-панели можно вписать как угодно («sale 10») — храним заглавными без пробелов («SALE10»).
+function normalizePromo(e) {
+  const { normalizeCode } = require(`${__hooks}/shop_lib.js`)
+  e.record.set("code", normalizeCode(e.record.getString("code")))
+  e.next()
+}
+onRecordCreate(normalizePromo, "promo_codes")
+onRecordUpdate(normalizePromo, "promo_codes")

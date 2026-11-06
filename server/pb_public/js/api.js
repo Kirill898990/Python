@@ -260,33 +260,50 @@
    */
   const realtime = {
     source: null,
-    handlers: new Set(),
-    subscribe(fn) {
-      this.handlers.add(fn);
+    clientId: "",
+    /** Тема (коллекция) → обработчики: messages — чат, call_signals — звонки. */
+    handlers: new Map(),
+    subscribe(fn, topic = "messages") {
+      if (!this.handlers.has(topic)) this.handlers.set(topic, new Set());
+      const isNew = !this.handlers.get(topic).size;
+      this.handlers.get(topic).add(fn);
       if (!this.source && typeof EventSource !== "undefined") this.connect();
+      else if (isNew && this.source) { this.listen(topic); this.sendSubscriptions(); }
       return () => {
-        this.handlers.delete(fn);
-        if (!this.handlers.size) this.close();
+        const set = this.handlers.get(topic);
+        if (set) set.delete(fn);
+        if (![...this.handlers.values()].some((x) => x.size)) this.close();
       };
+    },
+    topics() { return [...this.handlers.keys()].filter((t) => this.handlers.get(t).size); },
+    sendSubscriptions() {
+      if (!this.clientId) return Promise.resolve();
+      return request("POST", "api/realtime", { body: { clientId: this.clientId, subscriptions: this.topics() } });
+    },
+    listen(topic) {
+      if (!this.source || this.source["_has_" + topic]) return;
+      this.source["_has_" + topic] = true;
+      this.source.addEventListener(topic, (e) => {
+        let data;
+        try { data = JSON.parse(e.data); } catch (_) { return; }
+        (this.handlers.get(topic) || []).forEach((fn) => fn(data));
+      });
     },
     connect() {
       const source = new EventSource(serverUrl() + "/api/realtime");
       this.source = source;
+      this.clientId = "";
       source.addEventListener("PB_CONNECT", (e) => {
-        let clientId = "";
-        try { clientId = JSON.parse(e.data).clientId; } catch (_) { return; }
-        request("POST", "api/realtime", { body: { clientId, subscriptions: ["messages"] } })
-          .then(() => this.handlers.forEach((fn) => fn({ action: "connected" })), () => {});
+        try { this.clientId = JSON.parse(e.data).clientId; } catch (_) { return; }
+        this.sendSubscriptions()
+          .then(() => this.handlers.forEach((set) => set.forEach((fn) => fn({ action: "connected" }))), () => {});
       });
-      source.addEventListener("messages", (e) => {
-        let data;
-        try { data = JSON.parse(e.data); } catch (_) { return; }
-        this.handlers.forEach((fn) => fn(data));
-      });
+      this.topics().forEach((t) => this.listen(t));
     },
     close() {
       if (this.source) this.source.close();
       this.source = null;
+      this.clientId = "";
     },
   };
 
@@ -668,8 +685,31 @@
       count() { return this.get().length; },
     },
     /** Оформить заказ: сервер сам посчитает сумму и вернёт адрес страницы оплаты ЮKassa. */
-    checkout(items, email, phone) {
-      return guard(request("POST", "api/shop/checkout", { body: { items, email, phone } }));
+    checkout(items, email, phone, promo = "") {
+      return guard(request("POST", "api/shop/checkout", { body: { items, email, phone, promo } }));
+    },
+    /** Проверить промокод для корзины. → {code, discount, subtotal, total, text} или ошибка с причиной. */
+    promo(code, items) {
+      return request("POST", "api/shop/promo", { body: { code, items } });
+    },
+    /** «Мои покупки»: заказы ученика, новые сверху (без тех, где платёж даже не создался). */
+    async myOrders() {
+      const items = await guard(listAll("orders", { sort: "-created" }));
+      return items.filter((o) => o.status !== "error");
+    },
+    /** Отзывы о товаре (видны всем), новые сверху. */
+    reviews(productId) {
+      return listAll("reviews", { filter: `product = "${safeId(productId)}"`, sort: "-created" });
+    },
+    /** Написать или поправить свой отзыв. Сервер пустит, только если вы купили этот товар. */
+    saveReview(productId, rating, text, id) {
+      const body = { rating, text: String(text || "").trim() };
+      return guard(id
+        ? request("PATCH", `api/collections/reviews/records/${safeId(id)}`, { body })
+        : request("POST", "api/collections/reviews/records", { body: Object.assign(body, { product: productId, author: state.user.id }) }));
+    },
+    deleteReview(id) {
+      return guard(request("DELETE", `api/collections/reviews/records/${safeId(id)}`));
     },
     /** Статус заказа (сервер при необходимости спросит ЮKassa). */
     order(id) {
@@ -681,6 +721,20 @@
     },
     enrollment(id) {
       return guard(request("GET", `api/collections/enrollments/records/${safeId(id)}`, { query: { expand: "student,teacher" } }));
+    },
+    /** Есть ли курс, который скоро кончится: сколько часов осталось (или null). */
+    hoursLeft(en) {
+      const t = en && en.expiresAt ? Date.parse(String(en.expiresAt).replace(" ", "T")) : NaN;
+      return isNaN(t) ? null : (t - Date.now()) / 3600000;
+    },
+    /** Служебное сообщение звонка (вызов, ответ, отказ, конец) — тому, с кем курс. */
+    callSignal(call, to, enrollment, type, data = {}) {
+      return request("POST", "api/collections/call_signals/records", { body: { call, from: state.user.id, to, enrollment, type, data } });
+    },
+    /** Адрес страницы звонка (её же открывает приложение). */
+    callUrl(params) {
+      const q = Object.entries(params).filter(([, v]) => v != null && v !== "").map(([k, v]) => k + "=" + encodeURIComponent(v)).join("&");
+      return "call.html#" + q;
     },
 
     // ----- Чат -----

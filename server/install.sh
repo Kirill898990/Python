@@ -103,6 +103,7 @@ Wants=network-online.target
 Type=simple
 User=root
 WorkingDirectory=$DIR
+EnvironmentFile=-$DIR/server.env
 ExecStart=$DIR/pocketbase serve $DOMAIN www.$DOMAIN --dir $DIR/pb_data --migrationsDir $DIR/pb_migrations --hooksDir $DIR/pb_hooks --publicDir $DIR/pb_public
 Restart=always
 RestartSec=5
@@ -112,8 +113,78 @@ LimitNOFILE=4096
 WantedBy=multi-user.target
 EOF
 
+# Настройки сервера, которые не хранятся в базе (секрет для звонков, адрес сайта для писем). Видны только root.
+ENV_FILE="$DIR/server.env"
+touch "$ENV_FILE"
+chmod 600 "$ENV_FILE"
+set_env() {
+  { grep -v "^$1=" "$ENV_FILE" || true; echo "$1=$2"; } > "$ENV_FILE.tmp"
+  mv "$ENV_FILE.tmp" "$ENV_FILE"
+  chmod 600 "$ENV_FILE"
+}
+set_env SITE_URL "https://$DOMAIN"
+
+UFW_ON=0
+if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then UFW_ON=1; fi
+
+# Звонки в курсе: свой TURN-сервер (coturn). Он нужен, когда телефоны не могут соединиться напрямую
+# (так часто бывает в мобильном интернете). Голос и видео тогда идут через этот сервер. Отключить: TURN=0.
+if [ "${TURN:-1}" != "0" ]; then
+  say "Настраиваю сервер для звонков (coturn)"
+  if apt-get install -y -qq coturn >/dev/null 2>&1; then
+    TURN_SECRET="$(grep '^TURN_SECRET=' "$ENV_FILE" | cut -d= -f2- || true)"
+    [ -n "$TURN_SECRET" ] || TURN_SECRET="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+    set_env TURN_SECRET "$TURN_SECRET"
+    set_env TURN_HOST "$DOMAIN"
+    # Если у сервера внутренний адрес за NAT, coturn должен знать внешний.
+    LOCAL_IP="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i < NF; i++) if ($i == "src") print $(i + 1)}' || true)"
+    PUBLIC_IP="$(getent ahostsv4 "$DOMAIN" 2>/dev/null | awk 'NR == 1 {print $1}' || true)"
+    EXTERNAL=""
+    case "$LOCAL_IP" in
+      10.* | 192.168.* | 172.1[6-9].* | 172.2[0-9].* | 172.3[01].*)
+        if [ -n "$PUBLIC_IP" ] && [ "$PUBLIC_IP" != "$LOCAL_IP" ]; then EXTERNAL="external-ip=$PUBLIC_IP/$LOCAL_IP"; fi ;;
+    esac
+    cat > /etc/turnserver.conf <<TURNCONF
+# Создано install.sh для звонков в курсе. Пароли проверяются по секрету из $ENV_FILE.
+listening-port=3478
+fingerprint
+use-auth-secret
+static-auth-secret=$TURN_SECRET
+realm=$DOMAIN
+min-port=49160
+max-port=49250
+total-quota=60
+no-cli
+no-tls
+no-dtls
+no-multicast-peers
+denied-peer-ip=0.0.0.0-0.255.255.255
+denied-peer-ip=10.0.0.0-10.255.255.255
+denied-peer-ip=100.64.0.0-100.127.255.255
+denied-peer-ip=127.0.0.0-127.255.255.255
+denied-peer-ip=169.254.0.0-169.254.255.255
+denied-peer-ip=172.16.0.0-172.31.255.255
+denied-peer-ip=192.168.0.0-192.168.255.255
+denied-peer-ip=::1
+syslog
+$EXTERNAL
+TURNCONF
+    chmod 640 /etc/turnserver.conf
+    chgrp turnserver /etc/turnserver.conf 2>/dev/null || true
+    if [ -f /etc/default/coturn ]; then sed -i 's/^#*TURNSERVER_ENABLED=.*/TURNSERVER_ENABLED=1/' /etc/default/coturn; fi
+    systemctl enable coturn >/dev/null 2>&1 || true
+    systemctl restart coturn 2>/dev/null || echo "  Сервер для звонков не запустился: звонки будут работать, только если телефоны соединятся напрямую."
+    if [ "$UFW_ON" = 1 ]; then
+      ufw allow 3478 >/dev/null
+      ufw allow 49160:49250/udp >/dev/null
+    fi
+  else
+    echo "  Не получилось установить coturn: звонки будут работать, только если телефоны соединятся напрямую."
+  fi
+fi
+
 # Открываем порты 80 и 443, если на сервере включён брандмауэр.
-if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
+if [ "$UFW_ON" = 1 ]; then
   ufw allow 80/tcp >/dev/null
   ufw allow 443/tcp >/dev/null
 fi

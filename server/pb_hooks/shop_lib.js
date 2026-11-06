@@ -46,6 +46,97 @@ function yookassa(s, method, path, body, idempotenceKey) {
 }
 
 const now = () => new Date().toISOString().replace("T", " ")
+const toTime = (v) => { const t = v ? Date.parse(String(v).replace(" ", "T")) : NaN; return isNaN(t) ? 0 : t }
+const rub = (n) => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, " ") + " ₽"
+
+/**
+ * Товары из корзины → позиции заказа. Цены и сроки берём из базы, а не из запроса.
+ * raw: [{product, teacher, subject, exam, days}]. Ошибку бросает понятным текстом.
+ */
+function priceItems(app, raw) {
+  const items = []
+  const seen = {}
+  ;(Array.isArray(raw) ? raw.slice(0, 10) : []).forEach((x) => {
+    let p
+    try {
+      p = app.findRecordById("products", String((x && x.product) || "").replace(/[^a-z0-9]/gi, ""))
+    } catch (_) {}
+    if (!p || !p.getBool("active")) throw new BadRequestError("Одного из товаров больше нет в продаже. Обновите корзину.")
+    const json = (field) => { try { return JSON.parse(p.getString(field) || "[]") || [] } catch (_) { return [] } }
+    const allowedSubjects = json("subjects")
+    const allowedExams = json("exams")
+    const plans = json("plans")
+    const subject = String(x.subject || "")
+    const exam = String(x.exam || "")
+    if (allowedSubjects.length && allowedSubjects.indexOf(subject) < 0) throw new BadRequestError("Выберите предмет для курса")
+    if (allowedExams.length && allowedExams.indexOf(exam) < 0) throw new BadRequestError("Выберите экзамен для курса")
+    const plan = plans.find((pl) => pl && pl.days === parseInt(x.days, 10))
+    if (plans.length && !plan) throw new BadRequestError("Выберите срок подписки")
+    const days = plan ? plan.days : 30
+    const price = plan ? Number(plan.price) : p.getFloat("price")
+    // Учитель: из списка учителей курса, а если список пуст — любой подтверждённый учитель.
+    const teacherId = String(x.teacher || "").replace(/[^a-z0-9]/gi, "")
+    const allowedTeachers = p.getStringSlice("teachers")
+    let teacher = null
+    try { teacher = app.findRecordById("users", teacherId) } catch (_) {}
+    if (!teacher || !teacher.getBool("isTeacher") || (allowedTeachers.length && allowedTeachers.indexOf(teacherId) < 0)) {
+      throw new BadRequestError("Выберите учителя")
+    }
+    const key = [p.id, subject, exam, teacherId].join("|")
+    if (seen[key]) throw new BadRequestError("Один и тот же курс в корзине дважды")
+    seen[key] = true
+    items.push({
+      product: p.id, title: p.getString("title"), price, days,
+      subject, exam, teacher: teacherId, teacherName: teacher.getString("name"),
+    })
+  })
+  return items
+}
+
+/** Промокод: «Promo-10 » → «PROMO-10». */
+const normalizeCode = (code) => String(code || "").toUpperCase().replace(/\s+/g, "").slice(0, 30)
+
+/**
+ * Применить промокод к позициям заказа. buyerId — для промокодов «один раз на покупателя» (может быть пустым).
+ * → {code, discount, subtotal, total, text}. Если промокод не подходит, бросает ошибку с причиной.
+ * Скидка действует на товары из списка промокода (пустой список — на все товары, и на новые тоже).
+ */
+function applyPromo(app, rawCode, items, buyerId) {
+  const code = normalizeCode(rawCode)
+  const subtotal = items.reduce((sum, it) => sum + it.price, 0)
+  if (!code) return { code: "", discount: 0, subtotal, total: subtotal, text: "" }
+  let p
+  try {
+    p = app.findFirstRecordByFilter("promo_codes", "code = {:c}", { c: code })
+  } catch (_) {}
+  if (!p || !p.getBool("active")) throw new BadRequestError("Такого промокода нет. Проверьте, как он написан.")
+  const t = Date.now()
+  const starts = toTime(p.getString("startsAt"))
+  const ends = toTime(p.getString("endsAt"))
+  if (starts && t < starts) throw new BadRequestError("Промокод ещё не начал действовать")
+  if (ends && t > ends) throw new BadRequestError("Срок действия промокода закончился")
+  const maxUses = p.getInt("maxUses")
+  if (maxUses > 0 && p.getInt("used") >= maxUses) throw new BadRequestError("Промокод уже закончился")
+  if (p.getBool("oncePerUser") && buyerId) {
+    const used = app.countRecords("orders", $dbx.hashExp({ buyer: buyerId, promo: code, status: "paid" }))
+    if (used > 0) throw new BadRequestError("Вы уже использовали этот промокод")
+  }
+  const minTotal = p.getFloat("minTotal")
+  if (minTotal > 0 && subtotal < minTotal) throw new BadRequestError("Промокод действует при заказе от " + rub(minTotal))
+  const only = p.getStringSlice("products")
+  const eligible = items.filter((it) => !only.length || only.indexOf(it.product) >= 0).reduce((sum, it) => sum + it.price, 0)
+  if (!eligible) throw new BadRequestError("Промокод не действует на товары в корзине")
+  const percent = p.getFloat("percent")
+  const amount = p.getFloat("amount")
+  let discount = Math.round(eligible * percent / 100) + Math.round(amount)
+  discount = Math.min(discount, eligible)
+  // ЮKassa не принимает платёж меньше 1 рубля.
+  const total = Math.max(1, subtotal - discount)
+  discount = subtotal - total
+  if (discount <= 0) throw new BadRequestError("Промокод не даёт скидки на этот заказ")
+  const text = [percent > 0 && `${percent}%`, amount > 0 && rub(amount)].filter(Boolean).join(" + ")
+  return { code, discount, subtotal, total, text: "Скидка " + text }
+}
 
 /**
  * Заказ оплачен — выдаём курсы. Отметка «оплачено» ставится одним запросом к базе, поэтому если
@@ -63,7 +154,6 @@ function fulfill(app, orderId) {
   const buyer = app.findRecordById("users", order.getString("buyer"))
   const enrollments = app.findCollectionByNameOrId("enrollments")
   const teachers = buyer.getStringSlice("courseTeachers")
-  const toTime = (v) => { const t = v ? Date.parse(String(v).replace(" ", "T")) : NaN; return isNaN(t) ? 0 : t }
   items.forEach((it) => {
     // Тот же курс у того же учителя уже был — продлеваем: с конца текущего срока или с сегодняшнего дня.
     let r = null
@@ -89,6 +179,8 @@ function fulfill(app, orderId) {
   })
   buyer.set("courseTeachers", teachers)
   app.saveNoValidate(buyer)
+  const code = order.getString("promo")
+  if (code) app.db().newQuery("UPDATE promo_codes SET used = used + 1 WHERE code = {:c}").bind({ c: code }).execute()
   return true
 }
 
@@ -115,4 +207,4 @@ function refresh(app, order) {
   return status
 }
 
-module.exports = { base64, settings, yookassa, fulfill, refresh, now }
+module.exports = { base64, settings, yookassa, fulfill, refresh, now, toTime, priceItems, applyPromo, normalizeCode }

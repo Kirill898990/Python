@@ -39,6 +39,23 @@
     const name = it.teacherName || (list && teacherName(list, it.teacher));
     return [it.subject && subjectTitle(it.subject), it.exam, it.days && daysText(it.days), name && "учитель " + name].filter(Boolean).join(" · ");
   };
+  /** «1 отзыв», «3 отзыва», «12 отзывов» */
+  const reviewsText = (n) => {
+    const d = n % 10;
+    const word = n % 100 >= 11 && n % 100 <= 14 ? "отзывов" : d === 1 ? "отзыв" : d >= 2 && d <= 4 ? "отзыва" : "отзывов";
+    return `${n} ${word}`;
+  };
+  /** Звёзды оценки: ★★★★☆ */
+  const stars = (n, cls = "") => h("span", { class: "stars " + cls, "aria-label": `Оценка ${n} из 5` },
+    "★".repeat(Math.round(n)), h("span", { class: "stars-off" }, "★".repeat(5 - Math.round(n))));
+  /** Сколько осталось до конца курса: «2 дня», «5 ч». */
+  const leftText = (en) => {
+    const hours = Api.hoursLeft(en);
+    if (hours == null || hours <= 0) return "";
+    return hours < 24 ? `${Math.max(1, Math.ceil(hours))} ч` : daysText(Math.ceil(hours / 24));
+  };
+  /** Курс скоро кончится (меньше 3 дней) — пора напомнить о продлении. */
+  const endingSoon = (en) => isLive(en) && Api.hoursLeft(en) < 72;
   /** ОГЭ сдают в 9 классе, ЕГЭ — в 11. */
   const examGrade = (exam) => (exam === "ОГЭ" ? 9 : 11);
 
@@ -81,6 +98,7 @@
       h("div", { class: "shop-card-body" },
         h("div", { class: "shop-price" }, (plansOf(p).length > 1 ? "от " : "") + rub(minPrice(p)), p.oldPrice > minPrice(p) && h("s", null, rub(p.oldPrice))),
         h("div", { class: "shop-card-title" }, p.title),
+        p.reviews > 0 && h("div", { class: "shop-rating small" }, stars(p.rating), h("span", { class: "muted" }, ` ${String(p.rating).replace(".", ",")} · ${reviewsText(p.reviews)}`)),
         h("span", { class: "btn btn-filled btn-block shop-buy" }, h("span", null, "В корзину"))));
   }
 
@@ -139,6 +157,8 @@
         h("div", { class: "shop-product-info stack" },
           p.badge && h("span", { class: "shop-badge static" }, p.badge),
           h("h1", { class: "shop-product-title" }, p.title),
+          p.reviews > 0 && h("a", { class: "shop-rating", href: "#reviews", onclick: (e) => { e.preventDefault(); document.getElementById("reviews").scrollIntoView({ behavior: "smooth" }); } },
+            stars(p.rating), h("span", { class: "small muted" }, ` ${String(p.rating).replace(".", ",")} · ${reviewsText(p.reviews)}`)),
           price,
           h("div", { class: "small bold" }, "Срок подписки"), planBox,
           h("div", { class: "small bold" }, "Учитель"),
@@ -152,9 +172,85 @@
           h("p", { class: "tiny muted" }, "Курс откроется сразу после оплаты: в аккаунте появится раздел «Подготовка»."),
           sectionLabel("Описание"),
           h("div", { class: "shop-description" }, p.description),
-          howItWorks()));
+          howItWorks(),
+          reviewsBlock(p)));
     });
     return h("div", { class: "screen shop" }, header("shop"), body, footer());
+  }
+
+  // ======================= Отзывы =======================
+  /** Отзывы о товаре. Написать может только тот, кто купил этот курс (это проверяет и сервер). */
+  function reviewsBlock(p) {
+    const box = h("div", { class: "stack", id: "reviews" });
+    const user = Api.state.user;
+    async function load() {
+      const [list, bought] = await Promise.all([
+        Api.reviews(p.id),
+        user && !user.isTeacher ? Api.enrollments().then((ens) => ens.some((en) => en.product === p.id), () => false) : false,
+      ]);
+      const mine = user ? list.find((r) => r.author === user.id) : null;
+      const others = list.filter((r) => r !== mine);
+      replace(box,
+        sectionLabel(list.length ? `Отзывы (${list.length})` : "Отзывы"),
+        mine ? reviewCard(mine, true) : bought ? reviewForm(null) : h("p", { class: "small muted" }, list.length
+          ? "Отзыв может оставить только тот, кто купил этот курс."
+          : "Отзывов пока нет. Оставить отзыв может только тот, кто купил этот курс."),
+        others.map((r) => reviewCard(r, false)));
+    }
+    function reviewCard(r, own) {
+      return h("div", { class: "card stack review" + (own ? " card-highlight" : "") },
+        h("div", { class: "row" },
+          h("div", { class: "avatar" }, (r.authorName || "?")[0].toUpperCase()),
+          h("div", { class: "grow" },
+            h("div", { class: "bold" }, own ? "Ваш отзыв" : r.authorName),
+            h("div", { class: "tiny muted" }, Content.formatDate(r.created))),
+          stars(r.rating)),
+        r.text && h("p", { class: "review-text" }, r.text),
+        own && h("div", { class: "row-wrap" },
+          button("Изменить", () => editOwn(r), { kind: "text" }),
+          button("Удалить", async () => {
+            if (!(await UI.confirm("Удалить отзыв?", "Отзыв пропадёт со страницы курса. Потом можно написать новый.", "Удалить"))) return;
+            try { await Api.deleteReview(r.id); toast("Отзыв удалён"); load(); } catch (e) { toast(e.message); }
+          }, { kind: "text" })));
+    }
+    function editOwn(r) {
+      const form = reviewForm(r);
+      const old = box.querySelector(".review.card-highlight");
+      if (old) old.replaceWith(form);
+    }
+    function reviewForm(r) {
+      let rating = r ? r.rating : 0;
+      let text = r ? r.text : "";
+      const picker = h("div", { class: "star-picker", role: "radiogroup", "aria-label": "Оценка" });
+      const drawPicker = () => replace(picker, [1, 2, 3, 4, 5].map((n) => h("button", {
+        type: "button", class: "star" + (n <= rating ? " on" : ""), role: "radio", "aria-checked": n === rating ? "true" : "false",
+        "aria-label": `${n} из 5`, onclick: () => { rating = n; replace(message); drawPicker(); },
+      }, "★")));
+      const message = h("div", { "aria-live": "polite" });
+      drawPicker();
+      const send = async () => {
+        if (!rating) return replace(message, feedback("Поставьте оценку — от 1 до 5 звёзд", "error"));
+        try {
+          await Api.saveReview(p.id, rating, text, r && r.id);
+          toast(r ? "Отзыв изменён" : "Спасибо за отзыв!");
+          load();
+        } catch (e) {
+          replace(message, feedback(e.message || "Не получилось", "error"));
+        }
+      };
+      return h("div", { class: "card stack review-form" },
+        h("div", { class: "card-title" }, r ? "Изменить отзыв" : "Оставьте отзыв о курсе"),
+        h("p", { class: "small muted" }, "Вы купили этот курс, поэтому можете рассказать о нём другим."),
+        picker,
+        field({ label: "Ваш отзыв", multiline: true, rows: 4, value: text, placeholder: "Что понравилось, что можно сделать лучше", oninput: (v) => { text = v; } }),
+        message,
+        h("div", { class: "row-wrap" },
+          button(r ? "Сохранить" : "Отправить отзыв", send),
+          r && button("Отмена", load, { kind: "text" })));
+    }
+    replace(box, sectionLabel("Отзывы"), loading());
+    load().catch(() => replace(box, sectionLabel("Отзывы"), h("p", { class: "small muted" }, "Не получилось загрузить отзывы.")));
+    return box;
   }
 
   /** Товары корзины вместе с данными с сервера. Убирает из корзины то, что больше не продаётся. */
@@ -215,26 +311,68 @@
     let phone = Api.storage.get("beemei_phone", "");
     const body = Screens.asyncBlock(cartItems, (rows) => {
       if (!rows.length) return [emptyBox("🛒", "В корзине пока пусто"), h("a", { class: "btn btn-text", href: "#/shop" }, "Перейти в магазин")];
-      const total = rows.reduce((sum, r) => sum + r.price, 0);
+      const subtotal = rows.reduce((sum, r) => sum + r.price, 0);
+      const items = rows.map((x) => x.it);
       const agree = h("input", { type: "checkbox" });
       const message = h("div", { "aria-live": "polite" });
       // Поставили галочку — убираем напоминание о ней.
       agree.addEventListener("change", () => { if (agree.checked) replace(message); });
-      const payText = `Оплатить ${rub(total)}`;
-      const payBtn = button(payText, pay, { cls: "btn-block btn-tall" });
+      // Промокод: сервер проверяет его и считает скидку (и ещё раз — при оплате).
+      let promoCode = Api.storage.get("beemei_promo", "");
+      let promo = null;
+      const promoMsg = h("div", { "aria-live": "polite" });
+      const totals = h("div", { class: "stack" });
+      const total = () => (promo ? promo.total : subtotal);
+      const payText = () => `Оплатить ${rub(total())}`;
+      const payBtn = button(payText(), pay, { cls: "btn-block btn-tall" });
+      const renderTotals = () => {
+        replace(totals,
+          promo && h("div", { class: "row small" }, h("span", { class: "grow muted" }, "Без скидки"), h("s", { class: "muted" }, rub(subtotal))),
+          promo && h("div", { class: "row small ok bold" }, h("span", { class: "grow" }, `Промокод ${promo.code}`), h("span", null, "−" + rub(promo.discount))),
+          h("div", { class: "row shop-total" }, h("span", { class: "grow" }, "Итого"), h("b", null, rub(total()))));
+        if (!payBtn.disabled) replace(payBtn, h("span", null, payText()));
+      };
+      async function applyPromo() {
+        replace(promoMsg);
+        const code = promoCode.trim();
+        if (!code) { promo = null; renderTotals(); return true; }
+        try {
+          promo = await Api.promo(code, items);
+          Api.storage.set("beemei_promo", promo.code);
+          replace(promoMsg, feedback(`${promo.text}: −${rub(promo.discount)}`, "success"));
+          renderTotals();
+          return true;
+        } catch (e) {
+          promo = null;
+          Api.storage.remove("beemei_promo");
+          replace(promoMsg, feedback(e.message || "Промокод не подошёл", "error"));
+          renderTotals();
+          return false;
+        }
+      }
+      const promoField = field({
+        label: "Промокод", value: promoCode, placeholder: "Если есть", autocapitalize: "characters", autocomplete: "off",
+        oninput: (v) => { promoCode = v.toUpperCase(); promoField.input.value = promoCode; if (promo && promo.code !== promoCode.replace(/\s+/g, "")) { promo = null; replace(promoMsg); renderTotals(); } },
+        onenter: applyPromo,
+      });
+      renderTotals();
+      if (promoCode) applyPromo();
       async function pay() {
         if (!agree.checked) return replace(message, feedback("Подтвердите согласие с условиями покупки", "error"));
+        // Вписали промокод, но не нажали «Применить» — проверяем сейчас.
+        if (promoCode.trim() && !promo && !(await applyPromo())) return replace(message, feedback("Промокод не подошёл — исправьте его или сотрите", "error"));
         payBtn.disabled = true;
         replace(payBtn, h("span", { class: "spinner spinner-sm" }), h("span", null, "Переходим к оплате…"));
         try {
-          const r = await Api.checkout(rows.map((x) => x.it), email.trim(), phone.trim());
+          const r = await Api.checkout(items, email.trim(), phone.trim(), promo ? promo.code : "");
+          Api.storage.remove("beemei_promo");
           Api.storage.set("beemei_email", email.trim());
           Api.storage.set("beemei_phone", phone.trim());
           location.href = r.url; // страница оплаты ЮKassa, после неё — обратно на страницу заказа
         } catch (e) {
           replace(message, feedback(e.message || "Не получилось", "error"));
           payBtn.disabled = false;
-          replace(payBtn, h("span", null, payText));
+          replace(payBtn, h("span", null, payText()));
         }
       }
       return [
@@ -243,7 +381,11 @@
           rows.map(({ it, p, price, list }) => h("div", { class: "row" },
             h("div", { class: "grow" }, h("div", null, p.title), h("div", { class: "tiny muted" }, optionsText(it, list))),
             h("b", null, rub(price)))),
-          h("div", { class: "row shop-total" }, h("span", { class: "grow" }, "Итого"), h("b", null, rub(total)))),
+          totals),
+        h("div", { class: "card stack" },
+          h("div", { class: "card-title" }, "Промокод"),
+          h("div", { class: "promo-row" }, promoField, button("Применить", applyPromo, { kind: "outline" })),
+          promoMsg),
         h("div", { class: "card stack" },
           h("div", { class: "card-title" }, "Куда прислать чек"),
           field({ label: "Электронная почта", type: "email", value: email, autocomplete: "email", autocapitalize: "none", oninput: (v) => { email = v; } }),
@@ -276,6 +418,7 @@
         o.items.map((it) => h("div", { class: "row" },
           h("div", { class: "grow" }, h("div", null, it.title), h("div", { class: "tiny muted" }, optionsText(it))),
           h("b", null, rub(it.price)))),
+        o.discount > 0 && h("div", { class: "row small ok bold" }, h("span", { class: "grow" }, `Промокод ${o.promo}`), h("span", null, "−" + rub(o.discount))),
         h("div", { class: "row shop-total" }, h("span", { class: "grow" }, "Итого"), h("b", null, rub(o.total))));
       if (o.status === "paid") {
         Api.cart.clear();
@@ -310,6 +453,48 @@
     }
     load();
     return h("div", { class: "screen shop" }, header("shop"), h("h2", { class: "home-title" }, "Заказ"), box);
+  }
+
+  // ======================= Мои покупки =======================
+  const STATUS = {
+    paid: ["Оплачен", "pill-ok"],
+    pending: ["Ждёт оплаты", "pill-wait"],
+    canceled: ["Отменён", "pill-bad"],
+  };
+  function myOrders() {
+    const body = Screens.asyncBlock(() => Promise.all([Api.myOrders(), Api.enrollments().catch(() => [])]), ([orders, ens]) => {
+      if (!orders.length) {
+        return [emptyBox("🛍️", "Покупок пока нет. Курсы подготовки к ОГЭ и ЕГЭ — в магазине beemei."),
+          h("a", { class: "btn btn-filled btn-block", href: "#/shop" }, h("span", null, "Перейти в магазин"))];
+      }
+      return orders.map((o) => {
+        const [label, cls] = STATUS[o.status] || [o.status, "pill-muted"];
+        const items = Array.isArray(o.items) ? o.items : [];
+        const course = (it) => ens.find((en) => en.product === it.product && en.teacher === it.teacher && en.subject === it.subject && en.exam === it.exam);
+        return h("div", { class: "card stack" },
+          h("div", { class: "row" },
+            h("div", { class: "grow" },
+              h("div", { class: "card-title" }, "Заказ от " + new Date(Content.timeOf(o.created)).toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" })),
+              h("div", { class: "tiny muted" }, "Номер заказа: " + o.id)),
+            h("span", { class: "pill " + cls }, label)),
+          items.map((it) => {
+            const en = o.status === "paid" ? course(it) : null;
+            return h("div", { class: "row" },
+              h("div", { class: "grow" },
+                h("div", null, it.title),
+                h("div", { class: "tiny muted" }, optionsText(it)),
+                en && h("div", { class: "tiny" + (isLive(en) ? "" : " err") }, (isLive(en) ? "Курс открыт " : "Курс ") + untilText(en))),
+              h("b", null, rub(it.price)));
+          }),
+          o.discount > 0 && h("div", { class: "row small ok bold" }, h("span", { class: "grow" }, `Промокод ${o.promo}`), h("span", null, "−" + rub(o.discount))),
+          h("div", { class: "row shop-total" }, h("span", { class: "grow" }, "Итого"), h("b", null, rub(o.total))),
+          o.status === "pending" && h("a", { class: "btn btn-outline btn-block", href: `#/shop/order/${o.id}` }, h("span", null, "Проверить оплату")),
+          o.status === "paid" && items[0] && h("a", { class: "btn btn-text", href: `#/shop/product/${items[0].product}` }, "Продлить или купить ещё"));
+      });
+    });
+    return h("div", { class: "screen shop" }, topBar("Мои покупки", () => App.back("cabinet")), body,
+      h("p", { class: "tiny muted" }, "Чек приходит на почту или телефон, указанные при покупке. Вопросы по заказу — на почту продавца, указав номер заказа."),
+      footer());
   }
 
   // ======================= О продавце, оплата, возврат и оферта (открыты всем) =======================
@@ -392,14 +577,16 @@
         h("div", { class: "grow" },
           h("div", { class: "card-title" }, `Подготовка к ${en.exam} · ${subjectTitle(en.subject)}`),
           h("div", { class: "card-sub muted" }, isLive(en)
-            ? ["Личный курс", en.expand && en.expand.teacher && "учитель " + en.expand.teacher.name, untilText(en)].filter(Boolean).join(" · ")
-            : "Курс закончился — нажмите, чтобы продлить")),
+            ? ["Личный курс", en.teacherName && "учитель " + en.teacherName, untilText(en)].filter(Boolean).join(" · ")
+            : "Курс закончился — нажмите, чтобы продлить"),
+          endingSoon(en) && h("div", { class: "tiny err bold" }, `⏳ Осталось ${leftText(en)} — продлите, чтобы не потерять доступ`)),
         icon("chevron"))),
     ]);
     render();
-    Api.enrollments().then((list) => {
+    Promise.all([Api.enrollments(), teachers().catch(() => [])]).then(([list, all]) => {
       // Закончившиеся курсы показываем ещё 30 дней — чтобы было откуда продлить.
-      myCourses = list.filter((x) => x.active && expiresOf(x) > Date.now() - 30 * 24 * 3600 * 1000);
+      myCourses = list.filter((x) => x.active && expiresOf(x) > Date.now() - 30 * 24 * 3600 * 1000)
+        .map((x) => Object.assign(x, { teacherName: (x.expand && x.expand.teacher && x.expand.teacher.name) || teacherName(all, x.teacher) }));
       render();
     }, () => {});
     return box;
@@ -419,11 +606,10 @@
 
   function course(params) {
     const body = Screens.asyncBlock(async () => {
-      const en = await Api.enrollment(params.id);
-      await Promise.all([Api.refreshContent(), Api.refreshMySubmissions()]);
-      return en;
-    }, (en) => {
-      const teacher = en.expand && en.expand.teacher;
+      const [en, all] = await Promise.all([Api.enrollment(params.id), teachers().catch(() => []), Api.refreshContent(), Api.refreshMySubmissions()]);
+      return { en, all };
+    }, ({ en, all }) => {
+      const teacher = (en.expand && en.expand.teacher) || (teacherName(all, en.teacher) ? { name: teacherName(all, en.teacher) } : null);
       const list = content.coursePractices(en.id).filter((p) => p.published);
       if (!isLive(en)) {
         return [
@@ -437,6 +623,11 @@
           h("div", { class: "grow" },
             h("div", { class: "card-title" }, `Подготовка к ${en.exam} · ${subjectTitle(en.subject)}`),
             h("div", { class: "card-sub muted" }, ["Личный курс", teacher && "учитель " + teacher.name, untilText(en)].filter(Boolean).join(" · ")))),
+        endingSoon(en) && h("div", { class: "card stack renew-banner" },
+          h("div", { class: "bold" }, `⏳ Курс закончится через ${leftText(en)}`),
+          h("p", { class: "small" }, "Продлите его, чтобы задания и чат с учителем не закрылись. Новый срок прибавится к оставшимся дням."),
+          h("a", { class: "btn btn-filled btn-block", href: `#/shop/product/${en.product}` }, h("span", null, "Продлить курс"))),
+        callButtons(en, teacher ? "учителю" : ""),
         button("💬 Чат с учителем", () => Chat.open({ kind: "course", enrollment: en.id }, "Чат с учителем курса"), { kind: "outline", cls: "btn-block" }),
         sectionLabel("Задания от учителя"),
         list.length
@@ -446,6 +637,14 @@
       ];
     });
     return h("div", { class: "screen" }, topBar("Подготовка", () => App.back("")), body);
+  }
+
+  /** Звонок в курсе: голосом или с видео. Открывается страница звонка call.html. */
+  function callButtons(en, whom) {
+    const go = (video) => { location.href = Api.callUrl({ e: en.id, video: video ? 1 : "" }); };
+    return h("div", { class: "call-buttons" },
+      button(`📞 Позвонить${whom ? " " + whom : ""}`, () => go(false), { kind: "outline" }),
+      button("🎥 Видеозвонок", () => go(true), { kind: "outline" }));
   }
 
   // ======================= «Мои курсы» у учителя =======================
@@ -484,6 +683,7 @@
             h("div", { class: "small muted" }, `Подготовка к ${en.exam} · ${subjectTitle(en.subject)}`),
             h("div", { class: "tiny muted" }, [st && `логин ${st.username}`, st && st.group && `${st.group} класс`, untilText(en)].filter(Boolean).join(" · ")),
             !isLive(en) && h("div", { class: "tiny err bold" }, "Курс закончился: ученик не видит задания, пока не продлит"))),
+        isLive(en) && callButtons(en, "ученику"),
         button("💬 Чат с учеником", () => Chat.open({ kind: "course", enrollment: en.id }, st ? st.name : "Ученик курса"), { kind: "outline", cls: "btn-block" }),
         sectionLabel(`Практики ученика (${list.length})`),
         list.length === 0 && h("p", { class: "muted small" }, "Эти практики видит только этот ученик. Можно задать обычные задания, контрольную со временем или сгенерировать задания нейросетью."),
@@ -496,5 +696,5 @@
     return h("div", { class: "screen" }, topBar("Ученик курса", () => App.back("admin/courses")), body);
   }
 
-  window.Shop = { catalog, product, cart, checkout, order, info, offer, homeCourses, course, teacherList, teacherCourse };
+  window.Shop = { catalog, product, cart, checkout, order, myOrders, info, offer, homeCourses, course, teacherList, teacherCourse };
 })();
