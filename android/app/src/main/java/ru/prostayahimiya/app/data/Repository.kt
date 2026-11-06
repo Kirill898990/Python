@@ -883,6 +883,9 @@ class Repository(private val context: Context) {
 
     fun markWhatsNewSeen() = appPrefs.edit { putInt("whats_new_seen", BuildConfig.VERSION_CODE) }
 
+    /** Версия, «что нового» которой человек уже видел (-1 — не знаем, например обновился со старой версии). */
+    fun whatsNewSeen(): Int = appPrefs.getInt("whats_new_seen", -1)
+
     /** Показывать ли уведомления (переключатель в личном кабинете). */
     var notificationsEnabled: Boolean
         get() = appPrefs.getBoolean("notifications", true)
