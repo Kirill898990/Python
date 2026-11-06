@@ -861,6 +861,28 @@ class Repository(private val context: Context) {
 
     private val appPrefs = context.getSharedPreferences("app", Context.MODE_PRIVATE)
 
+    /**
+     * Показать ли окно «Что нового»: приложение обновили, а окно этой версии ещё не видели.
+     * После новой установки рассказывать «что нового» незачем — просто запоминаем версию.
+     */
+    fun whatsNewToShow(): Boolean {
+        val seen = appPrefs.getInt("whats_new_seen", -1)
+        if (seen >= BuildConfig.VERSION_CODE) return false
+        if (seen == -1) {
+            val fresh = runCatching {
+                val info = context.packageManager.getPackageInfo(context.packageName, 0)
+                info.firstInstallTime == info.lastUpdateTime
+            }.getOrDefault(true)
+            if (fresh) {
+                markWhatsNewSeen()
+                return false
+            }
+        }
+        return true
+    }
+
+    fun markWhatsNewSeen() = appPrefs.edit { putInt("whats_new_seen", BuildConfig.VERSION_CODE) }
+
     /** Показывать ли уведомления (переключатель в личном кабинете). */
     var notificationsEnabled: Boolean
         get() = appPrefs.getBoolean("notifications", true)

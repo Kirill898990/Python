@@ -27,6 +27,7 @@ import ru.prostayahimiya.app.ui.auth.PendingTeacherScreen
 import ru.prostayahimiya.app.ui.cabinet.CabinetScreen
 import ru.prostayahimiya.app.ui.cabinet.OrdersScreen
 import ru.prostayahimiya.app.ui.course.IncomingCallWatcher
+import ru.prostayahimiya.app.ui.components.WhatsNewDialog
 import ru.prostayahimiya.app.ui.cabinet.SubmissionScreen
 import ru.prostayahimiya.app.ui.chat.ChatListScreen
 import ru.prostayahimiya.app.ui.chat.ChatScreen
@@ -75,6 +76,8 @@ fun AppNavigation(repository: Repository) {
 
     // Входящий звонок по курсу — окно «Ответить / Отклонить» поверх любого экрана.
     IncomingCallWatcher(repository)
+    // Один раз после обновления — что появилось в новой версии.
+    WhatsNewDialog(repository)
 
     NavHost(navController = nav, startDestination = "home") {
         composable("home") {
