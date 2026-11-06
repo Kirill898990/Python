@@ -53,3 +53,17 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
   .call-bar { gap: 8px; }
   .call-ico { width: 56px; height: 56px; font-size: 22px; }
 }
+.call-meters { display: flex; gap: 16px; justify-content: center; margin-top: 10px; font-size: 13px; color: var(--muted); }
+.call-meters[hidden] { display: none; }
+.has-video .call-meters { justify-content: flex-start; }
+.call-meter { display: inline-flex; align-items: flex-end; gap: 2px; }
+.call-meter i { display: inline-block; width: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.25); }
+.call-meter i:nth-of-type(1) { height: 5px; margin-left: 6px; }
+.call-meter i:nth-of-type(2) { height: 8px; }
+.call-meter i:nth-of-type(3) { height: 11px; }
+.call-meter i:nth-of-type(4) { height: 14px; }
+.call-meter i:nth-of-type(5) { height: 17px; }
+.call-meter i.on { background: #4cd27f; }
+.call-hint { margin: 8px auto 0; max-width: 320px; font-size: 14px; color: #ffd27a; min-height: 1em; }
+.has-video .call-hint { margin-left: 0; }
+.ended .call-meters, .ended .call-hint { display: none; }

@@ -34,6 +34,8 @@ class CallActivity : ComponentActivity() {
     private var pendingWebRequest: PermissionRequest? = null
     private val audio by lazy { getSystemService(AudioManager::class.java) }
     private var oldAudioMode = AudioManager.MODE_NORMAL
+    /** Громкая связь: включена сразу при любом звонке, человек может выключить кнопкой «Динамик». */
+    private var speakerWanted = true
 
     private val askPermissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         pendingWebRequest?.let { answer(it) }
@@ -44,7 +46,6 @@ class CallActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val url = intent.getStringExtra(EXTRA_URL).orEmpty()
-        val video = intent.getBooleanExtra(EXTRA_VIDEO, false)
         if (!url.startsWith(BuildConfig.SERVER_URL.trimEnd('/'))) {
             finish()
             return
@@ -90,7 +91,9 @@ class CallActivity : ComponentActivity() {
 
         oldAudioMode = audio.mode
         audio.mode = AudioManager.MODE_IN_COMMUNICATION
-        setSpeaker(video)
+        setSpeaker(speakerWanted)
+        // Кнопки громкости во время звонка меняют громкость разговора.
+        volumeControlStream = AudioManager.STREAM_VOICE_CALL
 
         // «Назад» — положить трубку и закрыть окно.
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -162,7 +165,17 @@ class CallActivity : ComponentActivity() {
         fun close() = runOnUiThread { finish() }
 
         @JavascriptInterface
-        fun setSpeakerOn(on: Boolean) = runOnUiThread { setSpeaker(on) }
+        fun setSpeakerOn(on: Boolean) = runOnUiThread {
+            speakerWanted = on
+            setSpeaker(on)
+        }
+
+        /** Звонок соединился: телефон мог сам переключить звук в разговорный динамик — возвращаем как было выбрано. */
+        @JavascriptInterface
+        fun reapplySpeaker() = runOnUiThread {
+            audio.mode = AudioManager.MODE_IN_COMMUNICATION
+            setSpeaker(speakerWanted)
+        }
 
         @JavascriptInterface
         fun isSpeakerOn(): Boolean =
