@@ -75,6 +75,7 @@ const ask = (perm, url) => new Promise((res) => electron.permRequest(null, perm,
   ok(await ask("media", "https://evil.example/") === false, "чужому сайту микрофон не дают");
   ok(await ask("geolocation", main.SITE) === false, "лишние разрешения (геолокация) не дают");
   ok(electron.permCheck(null, "media", main.ORIGIN) === true && electron.permCheck(null, "media", "https://evil.example") === false, "проверка разрешений тоже по адресу");
+  ok(electron.permCheck(null, "media", main.ORIGIN + "/") === true, "адрес с «/» на конце — тоже наш");
 
   // правила для страниц
   const wc = fakeWc();
