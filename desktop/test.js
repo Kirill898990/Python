@@ -45,6 +45,7 @@ const electron = {
     defaultSession: {
       setPermissionRequestHandler(fn) { electron.permRequest = fn; },
       setPermissionCheckHandler(fn) { electron.permCheck = fn; },
+      flushStorageData() { calls.flushed = (calls.flushed || 0) + 1; },
     },
   },
 };
@@ -75,6 +76,7 @@ const ask = (perm, url) => new Promise((res) => electron.permRequest(null, perm,
   ok(await ask("media", "https://evil.example/") === false, "чужому сайту микрофон не дают");
   ok(await ask("geolocation", main.SITE) === false, "лишние разрешения (геолокация) не дают");
   ok(electron.permCheck(null, "media", main.ORIGIN) === true && electron.permCheck(null, "media", "https://evil.example") === false, "проверка разрешений тоже по адресу");
+  ok(electron.permCheck(null, "media", main.ORIGIN + "/") === true, "адрес с «/» на конце — тоже наш");
 
   // правила для страниц
   const wc = fakeWc();
@@ -94,5 +96,8 @@ const ask = (perm, url) => new Promise((res) => electron.permRequest(null, perm,
   wc.emit("did-fail-load", {}, -3, "ERR_ABORTED", main.SITE, true);
   ok(calls.loadFile.length === before, "отменённая загрузка — не ошибка");
   ok(wc.open({ url: "javascript:alert(1)" }).action === "deny", "странные ссылки не открываются");
+  const flushedBefore = calls.flushed || 0;
+  handlers["before-quit"]();
+  ok((calls.flushed || 0) - flushedBefore === 1, "перед выходом вход записывается на диск");
   console.log(`\n${n} checks, 0 fails`);
 })().catch((e) => { console.error("FAIL", e.message); process.exit(1); });

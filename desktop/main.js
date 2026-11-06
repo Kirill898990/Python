@@ -61,7 +61,8 @@ function setupPermissions(ses) {
     const url = (details && details.requestingUrl) || (wc && wc.getURL()) || "";
     callback(isOurs(url) && ALLOWED.has(permission));
   });
-  ses.setPermissionCheckHandler((wc, permission, requestingOrigin) => requestingOrigin === ORIGIN && ALLOWED.has(permission));
+  // Адрес сайта здесь приходит то с «/» на конце, то без — сравниваем как адрес, а не как строку.
+  ses.setPermissionCheckHandler((_wc, permission, requestingOrigin) => isOurs(requestingOrigin) && ALLOWED.has(permission));
 }
 
 // ---------- Контекстное меню: вырезать, копировать, вставить, исправить опечатку ----------
@@ -135,12 +136,17 @@ function createWindow() {
   });
   if (state.maximized) win.maximize();
   win.once("ready-to-show", () => win.show());
-  win.on("close", saveState);
+  win.on("close", () => { saveState(); flush(); });
+  win.on("session-end", flush); // Windows выключается или выходит из учётной записи
   win.on("closed", () => { win = null; });
   win.loadURL(SITE);
 }
 
 app.on("web-contents-created", (_e, wc) => guard(wc));
+
+/** Сразу записать вход на диск (браузер пишет с задержкой — при резком закрытии вход мог потеряться). */
+const flush = () => { try { session.defaultSession.flushStorageData(); } catch (_) { /* ignore */ } };
+app.on("before-quit", flush);
 
 app.on("second-instance", () => {
   if (!win) return createWindow();
@@ -207,6 +213,8 @@ if (firstInstance) app.whenReady().then(() => {
   setupPermissions(session.defaultSession);
   Menu.setApplicationMenu(menu());
   createWindow();
+  const timer = setInterval(flush, 15000);
+  if (timer.unref) timer.unref();
 });
 
 app.on("window-all-closed", () => app.quit());
