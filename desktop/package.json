@@ -25,9 +25,21 @@
       "buildResources": "build",
       "output": "dist"
     },
-    "files": ["main.js", "offline.html", "icon.png", "package.json"],
+    "files": [
+      "main.js",
+      "offline.html",
+      "icon.png",
+      "package.json"
+    ],
     "win": {
-      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "icon": "build/icon.ico",
       "executableName": "ProstayaHimiya"
     },
@@ -43,6 +55,11 @@
       "multiLanguageInstaller": false,
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico"
-    }
+    },
+    "compression": "maximum",
+    "electronLanguages": [
+      "ru",
+      "en-US"
+    ]
   }
 }
