@@ -24,6 +24,8 @@ import kotlin.coroutines.cancellation.CancellationException
 
 sealed interface SendState {
     data object Idle : SendState
+    /** Ответы не менялись с прошлой сдачи — вторую такую же работу не отправляем. */
+    data object Unchanged : SendState
     data object Sending : SendState
     data object Sent : SendState
     data class Error(val message: String) : SendState
@@ -144,12 +146,23 @@ class PracticeViewModel(
         }
     }
 
+    /** Ответы такие же, как в последней сданной работе (сравниваем как сервер: задание и то, что введено). */
+    fun sameAsLast(): Boolean {
+        val last = lastSubmission ?: return false
+        fun sig(list: List<AnswerItem>) = list.joinToString("\u0002") { (it.task ?: it.prompt) + "\u0001" + (it.input ?: it.answer) }
+        return sig(buildAnswers()) == sig(last.answers)
+    }
+
     /** Сдать работу учителю. Сколько верно, сервер посчитает сам. */
     fun submit() {
         if (sendState is SendState.Sending) return
         val items = buildAnswers()
         if (items.none { it.answer.isNotBlank() }) {
             sendState = SendState.Error("Сначала ответь хотя бы на одно задание.")
+            return
+        }
+        if (sameAsLast()) {
+            sendState = SendState.Unchanged
             return
         }
         sendState = SendState.Sending
