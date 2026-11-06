@@ -209,6 +209,15 @@
         startedAt = Date.now();
         timers.tick = setInterval(() => setStatus(duration()), 1000);
         setStatus("0:00");
+        playRemote();
+        // В приложении телефон, начиная звонок, может переключить звук в разговорный динамик —
+        // включаем громкую связь ещё раз, когда соединились.
+        const app = window.HimiyaCall;
+        if (inApp && app && app.reapplySpeaker) {
+          app.reapplySpeaker();
+          setTimeout(() => { if (!ended) app.reapplySpeaker(); }, 1500);
+        }
+        watchSound();
       }
     } else if (st === "disconnected" && connected) {
       setStatus("Плохая связь… переподключаемся");
@@ -224,14 +233,72 @@
     const video = $("remote");
     if (video.srcObject !== e.streams[0]) video.srcObject = e.streams[0];
     if (e.track.kind === "video") document.body.classList.add("has-video");
-    // Браузер может не включить звук сам — тогда просим нажать.
-    video.play().catch(() => {
+    playRemote();
+  }
+
+  /** Включить звук собеседника. Если браузер не дал сделать это сам — просим нажать на экран. */
+  function playRemote() {
+    const video = $("remote");
+    if (!video.srcObject) return;
+    video.muted = false;
+    video.volume = 1;
+    video.play().then(() => {
+      const btn = document.querySelector(".call-unmute");
+      if (btn) btn.remove();
+    }, () => {
+      if (document.querySelector(".call-unmute")) return;
       const btn = document.createElement("button");
       btn.className = "call-pill call-unmute";
       btn.textContent = "🔈 Нажмите, чтобы включить звук";
-      btn.onclick = () => { video.play().catch(() => {}); btn.remove(); };
-      if (!document.querySelector(".call-unmute")) $("call").append(btn);
+      btn.onclick = () => playRemote();
+      $("call").append(btn);
     });
+  }
+
+  /**
+   * Индикаторы звука «Вы» и «Собеседник»: видно, слышит ли микрофон вас и доходит ли звук собеседника.
+   * Если звук собеседника не доходит или он молчит, под таймером появляется подсказка.
+   */
+  function watchSound() {
+    $("meters").hidden = false;
+    let lastEnergy = 0;
+    let lastPackets = 0;
+    let silentFor = 0;
+    let noPacketsFor = 0;
+    timers.sound = setInterval(async () => {
+      if (ended || !pc) return;
+      let mine = 0;
+      let theirs = 0;
+      let packets = 0;
+      let energy = 0;
+      try {
+        (await pc.getStats()).forEach((r) => {
+          if (r.type === "media-source" && r.kind === "audio" && typeof r.audioLevel === "number") mine = r.audioLevel;
+          if (r.type === "inbound-rtp" && r.kind === "audio") {
+            packets = r.packetsReceived || 0;
+            energy = r.totalAudioEnergy || 0;
+            if (typeof r.audioLevel === "number") theirs = r.audioLevel;
+          }
+        });
+      } catch (_) { return; }
+      const micOff = stream && stream.getAudioTracks().every((t) => !t.enabled);
+      setMeter($("meter-me"), micOff ? 0 : mine);
+      setMeter($("meter-them"), theirs);
+      noPacketsFor = packets > lastPackets ? 0 : noPacketsFor + 1;
+      silentFor = energy - lastEnergy > 0.00001 ? 0 : silentFor + 1;
+      lastPackets = packets;
+      lastEnergy = energy;
+      const hint = $("sound-hint");
+      if (noPacketsFor >= 5) hint.textContent = "Звук от собеседника не доходит. Попросите его проверить интернет.";
+      else if (silentFor >= 8) hint.textContent = "Собеседника не слышно: возможно, у него выключен микрофон.";
+      else hint.textContent = "";
+    }, 1000);
+  }
+
+  function setMeter(el, level) {
+    // Тихая речь — около 0.02–0.1, громкая — до 0.5 и выше. Показываем 5 полосок.
+    const bars = Math.min(5, Math.round(Math.sqrt(Math.max(0, level)) * 9));
+    el.querySelectorAll("i").forEach((b, i) => b.classList.toggle("on", i < bars));
   }
 
   function toggle(kind, btn, onText, offText) {
@@ -333,6 +400,8 @@
   }
 
   $("hangup").addEventListener("click", hangup);
+  // Любое нажатие на экран — ещё одна попытка включить звук (некоторые браузеры ждут нажатия).
+  document.addEventListener("click", () => { if (connected && !ended) playRemote(); }, true);
   $("mic").addEventListener("click", () => toggle("audio", $("mic"), "Выключить микрофон", "Включить микрофон"));
   $("cam").addEventListener("click", () => toggle("video", $("cam"), "Выключить камеру", "Включить камеру"));
   $("flip").addEventListener("click", flipCamera);
