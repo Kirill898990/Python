@@ -216,6 +216,9 @@ routerAdd("GET", "/api/registration-info", (e) => {
 onRecordCreateRequest((e) => {
   if (e.hasSuperuserAuth()) return e.next()
   const body = e.requestInfo().body || {}
+  // Галочка «Я соглашаюсь с политикой конфиденциальности» — запоминаем, когда её поставили.
+  // (Старые версии приложения галочку не показывают — тогда даты нет.)
+  if (body.privacyAccepted === true) e.record.set("privacyAcceptedAt", new Date().toISOString().replace("T", " "))
   const fail = (field, code, message) => {
     throw new BadRequestError(message, { [field]: new ValidationError(code, message) })
   }

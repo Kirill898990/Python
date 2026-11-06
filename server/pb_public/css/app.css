@@ -893,3 +893,5 @@ p { margin: 0; }
 @keyframes ring-in { from { transform: translate(-50%, -20px); opacity: 0; } }
 @keyframes ring-shake { 0%, 100% { transform: rotate(0); } 10%, 30% { transform: rotate(-15deg); } 20%, 40% { transform: rotate(15deg); } 50% { transform: rotate(0); } }
 @media (prefers-reduced-motion: reduce) { .ring-banner, .ring-banner .ring-icon { animation: none; } }
+.consent .field-support { color: var(--error); margin: 2px 0 0 28px; min-height: 0; }
+.consent .check-row { margin-top: 0; }

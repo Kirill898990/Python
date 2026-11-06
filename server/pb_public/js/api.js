@@ -440,6 +440,7 @@
           classCode: String(extra.classCode || "").trim().toUpperCase(),
           teacher: extra.teacher || "",
           wantsTeacher: !!extra.wantsTeacher,
+          privacyAccepted: !!extra.privacyAccepted,
           username: normalizeUsername(username),
           password,
           passwordConfirm,
