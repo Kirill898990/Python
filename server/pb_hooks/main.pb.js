@@ -77,28 +77,66 @@ routerAdd("POST", "/api/check", (e) => {
 }, $apis.requireAuth("users"))
 
 onRecordCreateRequest((e) => {
-  const { Chem, taskData, hasInput, timeOf } = require(`${__hooks}/lib.js`)
+  const { Chem, taskData, hasInput } = require(`${__hooks}/lib.js`)
   let answers = []
   try {
     answers = JSON.parse(e.record.getString("answers") || "[]") || []
   } catch (_) {}
 
-  // Ту же самую работу прислали ещё раз в течение 2 минут (несколько нажатий, медленный интернет) —
-  // новую копию не создаём, а отвечаем уже сохранённой работой.
-  if (!e.hasSuperuserAuth()) {
-    const sig = (list) => (Array.isArray(list) ? list : [])
-      .map((a) => (a && (a.task || a.prompt || "")) + "\u0001" + (a ? String(a.input == null ? a.answer || "" : a.input) : ""))
-      .join("\u0002")
-    try {
-      const last = e.app.findRecordsByFilter("submissions", "student = {:s} && practice = {:p}", "-created", 1, 0,
-        { s: e.record.getString("student"), p: e.record.getString("practice") })[0]
-      let lastAnswers = []
+  // Защита от лишних копий одной работы (сайт, приложение любой версии):
+  // 1) те же ответы, что в последней сданной работе, — новую копию не создаём, отвечаем уже сданной;
+  // 2) ответы изменились — новая работа, но не чаще раза в 30 секунд;
+  // 3) много нажатий подряд — сохраняется одна работа (место «занимается» одним запросом к базе).
+  // У контрольной своя защита (сдать можно один раз за попытку, pb_hooks/exam.pb.js), а пересдачу
+  // с теми же ответами нужно сохранить — поэтому контрольные здесь не трогаем.
+  let isExam = false
+  try { isExam = e.app.findRecordById("practices", e.record.getString("practice")).getBool("exam") } catch (_) {}
+  if (!e.hasSuperuserAuth() && !isExam) {
+    const { answersSignature } = require(`${__hooks}/lib.js`)
+    const student = e.record.getString("student")
+    const practice = e.record.getString("practice")
+    const sig = answersSignature(answers)
+    const lastWork = () => {
       try {
-        lastAnswers = JSON.parse(last.getString("answers") || "[]") || []
-      } catch (_) {}
-      const fresh = Date.now() - timeOf(last.getString("created")) < 2 * 60 * 1000
-      if (fresh && sig(lastAnswers) === sig(answers)) return e.json(200, last)
-    } catch (_) {}
+        return e.app.findRecordsByFilter("submissions", "student = {:s} && practice = {:p}", "-created", 1, 0, { s: student, p: practice })[0] || null
+      } catch (_) {
+        return null
+      }
+    }
+    const sigOf = (rec) => {
+      let list = []
+      try { list = JSON.parse(rec.getString("answers") || "[]") || [] } catch (_) {}
+      return answersSignature(list)
+    }
+    const last = lastWork()
+    if (last && sigOf(last) === sig) return e.json(200, last)
+
+    const db = e.app.db()
+    const now = Date.now()
+    const slot = student + "|" + practice
+    let won = db.newQuery("UPDATE submit_guard SET sig = {:sig}, at = {:now} WHERE slot = {:slot} AND at <= {:limit}")
+      .bind({ sig, now, slot, limit: now - 30 * 1000 }).execute().rowsAffected() === 1
+    if (!won) {
+      won = db.newQuery("INSERT OR IGNORE INTO submit_guard (id, slot, sig, at) VALUES ({:id}, {:slot}, {:sig}, {:now})")
+        .bind({ id: $security.randomStringWithAlphabet(15, "abcdefghijklmnopqrstuvwxyz0123456789"), slot, sig, now })
+        .execute().rowsAffected() === 1
+    }
+    if (!won) {
+      const row = new DynamicModel({ sig: "", at: 0 })
+      db.newQuery("SELECT sig, at FROM submit_guard WHERE slot = {:slot}").bind({ slot }).one(row)
+      if (row.sig !== sig) {
+        const wait = Math.max(1, Math.ceil((row.at + 30 * 1000 - now) / 1000))
+        throw new TooManyRequestsError(`Работа только что отправлена. Если ты исправил ответы, отправь ещё раз через ${wait} с.`)
+      }
+      // Ту же работу отправили несколько раз подряд: ждём, пока сохранится первая, и отвечаем ею.
+      for (let i = 0; i < 15; i++) {
+        sleep(200)
+        const first = lastWork()
+        if (first && sigOf(first) === sig) return e.json(200, first)
+      }
+      // Первая так и не сохранилась (например, оборвалась связь) — сохраняем эту.
+      db.newQuery("UPDATE submit_guard SET at = {:now} WHERE slot = {:slot}").bind({ now: Date.now(), slot }).execute()
+    }
   }
   // Старое приложение (1.0) не присылает номера заданий — тогда оставляем его подсчёт.
   if (Array.isArray(answers) && answers.some((a) => a && a.task)) {

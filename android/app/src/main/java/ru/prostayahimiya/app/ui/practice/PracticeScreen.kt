@@ -823,7 +823,7 @@ private fun SubmitCard(vm: PracticeViewModel, onOpenCabinet: () -> Unit) {
         AlertDialog(
             onDismissRequest = { confirmResend = false },
             title = { Text("Сдать ещё раз?") },
-            text = { Text("Работа уже у учителя. Если ты исправил ответы, учитель получит новую работу.") },
+            text = { Text("Работа уже у учителя. Учитель получит новую работу с исправленными ответами.") },
             confirmButton = {
                 TextButton(onClick = {
                     confirmResend = false
@@ -867,7 +867,7 @@ private fun SubmitCard(vm: PracticeViewModel, onOpenCabinet: () -> Unit) {
             )
         }
         Button(
-            onClick = { if (last != null) confirmResend = true else vm.submit() },
+            onClick = { if (last != null && !vm.sameAsLast()) confirmResend = true else vm.submit() },
             enabled = vm.sendState !is SendState.Sending,
             modifier = Modifier.fillMaxWidth(),
         ) {
@@ -887,6 +887,7 @@ private fun SubmitCard(vm: PracticeViewModel, onOpenCabinet: () -> Unit) {
         }
         when (val state = vm.sendState) {
             is SendState.Error -> Feedback(state.message, FeedbackKind.Error)
+            SendState.Unchanged -> Feedback("Эта работа уже у учителя. Чтобы сдать ещё раз, сначала исправь ответы.", FeedbackKind.Warning)
             SendState.Sent -> {
                 Feedback("Готово! Работа отправлена учителю.", FeedbackKind.Success)
                 TextButton(onClick = onOpenCabinet) { Text("Открыть личный кабинет") }

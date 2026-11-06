@@ -893,6 +893,14 @@
       });
     }
 
+    /** Одинаковые ли ответы (как сравнивает сервер: задание и то, что ввёл ученик). */
+    function sameAnswers(a, b) {
+      const sig = (list) => (Array.isArray(list) ? list : [])
+        .map((x) => (x && (x.task || x.prompt || "")) + "\u0001" + (x ? String(x.input == null ? x.answer || "" : x.input) : ""))
+        .join("\u0002");
+      return sig(a) === sig(b);
+    }
+
     function submitCard() {
       const statusBox = h("div");
       const resultBox = h("div");
@@ -922,7 +930,12 @@
           replace(resultBox, feedback("Сначала ответь хотя бы на одно задание.", "error"));
           return;
         }
-        if (last && !(await confirm("Сдать ещё раз?", "Работа уже у учителя. Если ты исправил ответы, учитель получит новую работу.", "Сдать ещё раз"))) return;
+        // Ответы не менялись — эта работа уже у учителя, вторую такую же не отправляем.
+        if (last && sameAnswers(items, last.answers)) {
+          replace(resultBox, feedback("Эта работа уже у учителя. Чтобы сдать ещё раз, сначала исправь ответы.", "warning"));
+          return;
+        }
+        if (last && !(await confirm("Сдать ещё раз?", "Работа уже у учителя. Учитель получит новую работу с исправленными ответами.", "Сдать ещё раз"))) return;
         sending = true;
         sendBtn.disabled = true;
         replace(sendBtn, h("span", { class: "spinner spinner-sm" }), h("span", null, "Отправляем…"));

@@ -44,4 +44,15 @@ function normalizeGroup(value) {
   return String(value || "").replace(/\s+/g, "").toUpperCase().replace(/[ABCEHKMOPTXY]/g, (ch) => twins[ch])
 }
 
-module.exports = { Chem, taskData, hasInput, timeOf, examResultsOpen, normalizeGroup }
+/**
+ * Подпись ответов работы: какие задания и что ввёл ученик. Одинаковые ответы — одинаковая подпись.
+ * Приложение 1.0 не присылает номера заданий — тогда берём текст задания и ответ.
+ */
+function answersSignature(list) {
+  const text = (Array.isArray(list) ? list : [])
+    .map((a) => (a && (a.task || a.prompt || "")) + "\u0001" + (a ? String(a.input == null ? a.answer || "" : a.input) : ""))
+    .join("\u0002")
+  return $security.sha256(text)
+}
+
+module.exports = { Chem, taskData, hasInput, timeOf, examResultsOpen, normalizeGroup, answersSignature }
