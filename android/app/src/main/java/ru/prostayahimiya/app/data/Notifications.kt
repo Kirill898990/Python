@@ -10,6 +10,7 @@ import androidx.core.app.NotificationChannelCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import androidx.core.net.toUri
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -25,8 +26,9 @@ import java.util.concurrent.TimeUnit
 /*
  * Уведомления. Без Google-сервисов и без ключей: раз в 15 минут (так часто разрешает Android)
  * приложение само спрашивает сервер, что нового, и показывает уведомление.
- * Ученику — новые практики и контрольные, оценки, сообщения в чате и напоминание о сроке сдачи.
- * Учителю — новые работы на проверку и сообщения учеников.
+ * Ученику — новые практики и контрольные, оценки, сообщения в чате, напоминание о сроке сдачи
+ * и о том, что купленный курс заканчивается завтра (с кнопкой «Продлить»).
+ * Учителю — новые работы на проверку и сообщения учеников. Обоим — пропущенные звонки по курсу.
  */
 
 /** Группы уведомлений. Каждую можно выключить в настройках телефона отдельно. */
@@ -36,10 +38,23 @@ enum class NoticeChannel(val id: String, val title: String, val description: Str
     DEADLINES("deadlines", "Сроки сдачи", "Напоминание, когда срок сдачи завтра или сегодня"),
     CHAT("chat", "Чат", "Новые сообщения в чате класса и личные"),
     WORKS("works", "Работы учеников", "Ученики сдали работы на проверку"),
+    COURSES("courses", "Курсы", "Купленный курс заканчивается завтра"),
+    CALLS("calls", "Звонки", "Пропущенные звонки по курсу"),
 }
 
-/** Одно уведомление. [open] — какой экран открыть по нажатию (адрес в AppNavigation). */
-data class Notice(val channel: NoticeChannel, val key: String, val title: String, val text: String, val open: String)
+/**
+ * Одно уведомление. [open] — какой экран открыть по нажатию (адрес в AppNavigation).
+ * [actionTitle] и [actionUrl] — кнопка в уведомлении, открывающая сайт (например, «Продлить»).
+ */
+data class Notice(
+    val channel: NoticeChannel,
+    val key: String,
+    val title: String,
+    val text: String,
+    val open: String,
+    val actionTitle: String? = null,
+    val actionUrl: String? = null,
+)
 
 object Notifier {
     const val EXTRA_OPEN = "open"
@@ -86,7 +101,7 @@ object Notifier {
                 intent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
-            val notification = NotificationCompat.Builder(context, n.channel.id)
+            val builder = NotificationCompat.Builder(context, n.channel.id)
                 .setSmallIcon(R.drawable.ic_notification)
                 .setColor(0xFF187A5F.toInt())
                 .setContentTitle(n.title)
@@ -94,7 +109,16 @@ object Notifier {
                 .setStyle(NotificationCompat.BigTextStyle().bigText(n.text))
                 .setContentIntent(pending)
                 .setAutoCancel(true)
-                .build()
+            if (n.actionTitle != null && n.actionUrl != null) {
+                val action = PendingIntent.getActivity(
+                    context,
+                    (n.key + "-action").hashCode(),
+                    Intent(Intent.ACTION_VIEW, n.actionUrl.toUri()),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                )
+                builder.addAction(0, n.actionTitle, action)
+            }
+            val notification = builder.build()
             try {
                 manager.notify(n.key.hashCode(), notification)
             } catch (_: SecurityException) {

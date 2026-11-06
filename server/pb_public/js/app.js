@@ -24,6 +24,7 @@
       screen: (m) => Teacher.editor({ id: "new", enrollment: m[1], subject: m[2], grade: +m[3] }), name: "editor", teacher: true },
     { pattern: /^practice\/([a-z0-9]+)$/, screen: (m) => Screens.practice({ id: m[1] }), name: "practice" },
     { pattern: /^cabinet$/, screen: () => Screens.cabinet(), name: "cabinet" },
+    { pattern: /^orders$/, screen: () => Shop.myOrders(), name: "orders" },
     { pattern: /^submission\/([a-z0-9]+)$/, screen: (m) => Screens.submission({ id: m[1] }), name: "submission" },
     { pattern: /^chats$/, screen: () => Chat.list(), name: "chats" },
     { pattern: /^reference(?:\/(solubility))?$/, screen: (m) => ReferenceScreen.screen({ tab: m[1] }), name: "reference" },

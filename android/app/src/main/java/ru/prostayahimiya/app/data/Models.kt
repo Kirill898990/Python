@@ -1,6 +1,10 @@
 package ru.prostayahimiya.app.data
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import java.time.Duration
 import ru.prostayahimiya.app.chem.Equation
 import java.time.Instant
 import java.time.ZoneId
@@ -434,6 +438,103 @@ data class Enrollment(
     val heading: String get() = "Подготовка к $exam · ${subjectEnum.title}"
     /** ОГЭ сдают в 9 классе, ЕГЭ — в 11. */
     val grade: Int get() = if (exam == "ОГЭ") 9 else 11
+    /** Сколько часов осталось до конца курса (null — срок не указан). */
+    val hoursLeft: Double? get() = expiresInstant?.let { Duration.between(Instant.now(), it).toMinutes() / 60.0 }
+    /** Курс открыт, но закончится меньше чем через 3 дня — пора продлить. */
+    val endingSoon: Boolean get() = isLive && (hoursLeft ?: 1000.0) < 72
+    /** «2 дня», «5 ч» — сколько осталось. */
+    val leftText: String
+        get() {
+            val h = hoursLeft ?: return ""
+            if (h <= 0) return ""
+            return if (h < 24) "${kotlin.math.ceil(h).toInt().coerceAtLeast(1)} ч" else daysText(kotlin.math.ceil(h / 24).toInt())
+        }
+}
+
+/** «1 день», «2 дня», «5 дней» */
+fun daysText(n: Int): String {
+    val d = n % 10
+    val word = if (n % 100 in 11..14) "дней" else if (d == 1) "день" else if (d in 2..4) "дня" else "дней"
+    return "$n $word"
+}
+
+/** Заказ в магазине beemei («Мои покупки»). */
+@Serializable
+data class Order(
+    val id: String = "",
+    /** pending — ждёт оплаты, paid — оплачен, canceled — отменён, error — платёж не создался. */
+    val status: String = "",
+    val total: Double = 0.0,
+    val discount: Double = 0.0,
+    val promo: String = "",
+    val created: String = "",
+    val items: List<OrderItem> = emptyList(),
+)
+
+@Serializable
+data class OrderItem(
+    val product: String = "",
+    val title: String = "",
+    val price: Double = 0.0,
+    val days: Int = 0,
+    val subject: String = "",
+    val exam: String = "",
+    val teacher: String = "",
+    val teacherName: String = "",
+) {
+    /** «Химия · ЕГЭ · 7 дней · учитель Ирина Петровна» */
+    val optionsText: String
+        get() = listOfNotNull(
+            subject.takeIf { it.isNotBlank() }?.let { Subject.fromKey(it).title },
+            exam.takeIf { it.isNotBlank() },
+            days.takeIf { it > 0 }?.let { daysText(it) },
+            teacherName.takeIf { it.isNotBlank() }?.let { "учитель $it" },
+        ).joinToString(" · ")
+}
+
+/** «7 000 ₽» */
+fun rub(value: Double): String = "%,d ₽".format(Locale.forLanguageTag("ru"), Math.round(value)).replace('\u00A0', ' ').replace('\u202F', ' ')
+
+/** Отзыв о товаре магазина. Писать может только тот, кто купил товар. */
+@Serializable
+data class Review(
+    val id: String = "",
+    val product: String = "",
+    val author: String = "",
+    val authorName: String = "",
+    val rating: Int = 0,
+    val text: String = "",
+    val created: String = "",
+)
+
+/** Кто сейчас звонит (ответ /api/call/incoming). */
+@Serializable
+data class IncomingCall(
+    val id: String = "",
+    val enrollment: String = "",
+    val from: String = "",
+    val name: String = "",
+    val video: Boolean = false,
+    val created: String = "",
+)
+
+@Serializable
+data class IncomingResponse(val call: IncomingCall? = null)
+
+/** Служебное сообщение звонка (для «пропущенный звонок»). */
+@Serializable
+data class CallSignal(
+    val id: String = "",
+    val call: String = "",
+    val from: String = "",
+    val to: String = "",
+    val enrollment: String = "",
+    val type: String = "",
+    val data: JsonObject? = null,
+    val created: String = "",
+) {
+    val callerName: String get() = (data?.get("name") as? JsonPrimitive)?.content.orEmpty()
+    val video: Boolean get() = (data?.get("video") as? JsonPrimitive)?.booleanOrNull == true
 }
 
 @Serializable

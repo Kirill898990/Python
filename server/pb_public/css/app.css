@@ -858,3 +858,38 @@ p { margin: 0; }
 .shop-steps { margin: 0; padding-left: 20px; display: grid; gap: 6px; line-height: 1.45; }
 .shop-footer { margin-top: 24px; padding-top: 12px; border-top: 1px solid var(--outline-variant); display: grid; gap: 6px; }
 .shop-footer .row-wrap { gap: 6px 14px; font-size: 13px; }
+
+/* ----- Отзывы, промокод, покупки, продление, звонки ----- */
+.stars { color: #f5a800; letter-spacing: 1px; white-space: nowrap; }
+.stars-off { color: var(--outline-variant); }
+.shop-rating { display: inline-flex; align-items: center; gap: 2px; text-decoration: none; color: inherit; }
+.review-text { margin: 0; white-space: pre-line; line-height: 1.5; }
+.star-picker { display: flex; gap: 4px; }
+.star {
+  font-size: 32px; line-height: 1; padding: 2px 4px; border: none; background: none; cursor: pointer;
+  color: var(--outline-variant); border-radius: 8px;
+}
+.star.on { color: #f5a800; }
+.star:focus-visible { outline: 2px solid var(--primary); }
+.promo-row { display: flex; gap: 8px; align-items: flex-start; }
+.promo-row .field { flex: 1; margin: 0; }
+.promo-row .btn { margin-top: 22px; flex: none; }
+.pill-ok { background: var(--primary-container); border-color: transparent; color: var(--on-primary-container); }
+.pill-wait { background: var(--secondary-container); border-color: transparent; color: var(--on-secondary-container); }
+.pill-bad { background: var(--error-container); border-color: transparent; color: var(--on-error-container); }
+.renew-banner { background: var(--error-container); color: var(--on-error-container); border-color: transparent; }
+.renew-banner p { margin: 0; }
+.call-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.ring-banner {
+  position: fixed; left: 50%; top: 12px; transform: translateX(-50%); z-index: 50; width: min(420px, calc(100% - 24px));
+  display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 18px;
+  background: var(--toast-bg); color: var(--toast-fg); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  animation: ring-in 0.25s ease-out;
+}
+.ring-banner .ring-icon { font-size: 28px; animation: ring-shake 1s infinite; }
+.ring-banner .btn { min-height: 40px; padding: 0 14px; }
+.ring-accept { background: #1e9e57; color: #fff; }
+.ring-decline { background: #d93025; color: #fff; }
+@keyframes ring-in { from { transform: translate(-50%, -20px); opacity: 0; } }
+@keyframes ring-shake { 0%, 100% { transform: rotate(0); } 10%, 30% { transform: rotate(-15deg); } 20%, 40% { transform: rotate(15deg); } 50% { transform: rotate(0); } }
+@media (prefers-reduced-motion: reduce) { .ring-banner, .ring-banner .ring-icon { animation: none; } }

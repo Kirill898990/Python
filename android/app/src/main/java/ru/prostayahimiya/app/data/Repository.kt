@@ -33,6 +33,7 @@ import ru.prostayahimiya.app.BuildConfig
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.time.Instant
+import java.time.format.DateTimeFormatter
 
 /**
  * Единая точка доступа к данным: вход и регистрация, задания с сервера (с копией на телефоне),
@@ -448,16 +449,117 @@ class Repository(private val context: Context) {
 
     /** Купленные курсы: у ученика — свои, у учителя — его ученики курсов (магазин beemei на сайте). */
     suspend fun enrollments(): List<Enrollment> = guard {
-        api.listAll("enrollments", Enrollment.serializer(), sort = "-created", expand = "student,teacher")
+        withTeacherNames(api.listAll("enrollments", Enrollment.serializer(), sort = "-created", expand = "student,teacher"))
     }.getOrThrow()
 
     suspend fun enrollment(id: String): Enrollment = guard {
+        withTeacherNames(
+            listOf(
+                api.call(
+                    "GET",
+                    api.url("api/collections/enrollments/records/${safeId(id)}", mapOf("expand" to "student,teacher")),
+                    Enrollment.serializer(),
+                ),
+            ),
+        ).first()
+    }.getOrThrow()
+
+    /** Профиль учителя курса ученику может быть не виден — имя берём из открытого списка учителей. */
+    private suspend fun withTeacherNames(list: List<Enrollment>): List<Enrollment> {
+        if (list.none { it.expand?.teacher == null }) return list
+        val names = runCatching { registrationInfo().teachers.associate { it.id to it.name } }.getOrDefault(emptyMap())
+        return list.map { en ->
+            val name = names[en.teacher]
+            if (en.expand?.teacher != null || name == null) en
+            else en.copy(expand = (en.expand ?: EnrollmentExpand()).copy(teacher = User(id = en.teacher, name = name, isTeacher = true)))
+        }
+    }
+
+    // ---------- Покупки, отзывы и звонки в курсе ----------
+
+    /** «Мои покупки»: заказы ученика в магазине beemei, новые сверху (без тех, где платёж даже не создался). */
+    suspend fun myOrders(): List<Order> = guard {
+        api.listAll("orders", Order.serializer(), sort = "-created").filter { it.status != "error" }
+    }.getOrThrow()
+
+    /** Свой отзыв о товаре (или null). */
+    suspend fun myReview(productId: String): Review? = guard {
+        val me = _user.value?.id.orEmpty()
         api.call(
             "GET",
-            api.url("api/collections/enrollments/records/${safeId(id)}", mapOf("expand" to "student,teacher")),
-            Enrollment.serializer(),
+            api.url("api/collections/reviews/records", mapOf("filter" to "product = \"${safeId(productId)}\" && author = \"${safeId(me)}\"", "perPage" to "1")),
+            Page.serializer(Review.serializer()),
+        ).items.firstOrNull()
+    }.getOrThrow()
+
+    /** Написать или поправить отзыв. Сервер пустит, только если этот товар куплен. */
+    suspend fun saveReview(productId: String, rating: Int, text: String, id: String = ""): Review = guard {
+        val body = buildJsonObject {
+            put("rating", rating)
+            put("text", text.trim())
+            if (id.isEmpty()) {
+                put("product", productId)
+                put("author", _user.value?.id.orEmpty())
+            }
+        }
+        save("reviews", safeId(id), body, Review.serializer())
+    }.getOrThrow()
+
+    suspend fun deleteReview(id: String) = guard {
+        api.send("DELETE", api.url("api/collections/reviews/records/${safeId(id)}"))
+    }.getOrThrow()
+
+    private var coursesCheckedAt = 0L
+    private var coursesCheckedFor = ""
+    private var hasCoursesCached = false
+
+    /** Есть ли у человека курс (ученик купил или учитель ведёт). Только им нужно слушать звонки. Помним 5 минут. */
+    suspend fun hasCourses(): Boolean {
+        val me = _user.value?.id ?: return false
+        if (me == coursesCheckedFor && System.currentTimeMillis() - coursesCheckedAt < 5 * 60_000) return hasCoursesCached
+        hasCoursesCached = runCatching { enrollments().any { it.active } }.getOrDefault(hasCoursesCached)
+        coursesCheckedAt = System.currentTimeMillis()
+        coursesCheckedFor = me
+        return hasCoursesCached
+    }
+
+    /** Кто сейчас звонит этому человеку (или null). */
+    suspend fun incomingCall(): IncomingCall? = guard {
+        api.call("GET", api.url("api/call/incoming"), IncomingResponse.serializer()).call
+    }.getOrThrow()
+
+    /** Отклонить входящий звонок. */
+    suspend fun declineCall(call: IncomingCall) = guard {
+        api.send(
+            "POST",
+            api.url("api/collections/call_signals/records"),
+            buildJsonObject {
+                put("call", call.id)
+                put("from", _user.value?.id.orEmpty())
+                put("to", call.from)
+                put("enrollment", call.enrollment)
+                put("type", "decline")
+            },
         )
     }.getOrThrow()
+
+    /**
+     * Страница звонка на сайте (её показывает CallActivity). Вход передаём после «#»: эта часть адреса
+     * не уходит на сервер и сразу стирается страницей.
+     */
+    fun callUrl(enrollmentId: String, video: Boolean, answer: IncomingCall? = null): String {
+        val params = buildList {
+            add("e=" + safeId(enrollmentId))
+            if (video) add("video=1")
+            if (answer != null) {
+                add("call=" + safeId(answer.id))
+                add("answer=1")
+            }
+            add("app=1")
+            add("token=" + Uri.encode(token.orEmpty()))
+        }
+        return BuildConfig.SERVER_URL.trimEnd('/') + "/call.html#" + params.joinToString("&")
+    }
 
     suspend fun resetPassword(userId: String, newPassword: String) = guard {
         api.send(
@@ -478,6 +580,9 @@ class Repository(private val context: Context) {
 
     /** Адрес страницы приложения на сайте, где можно скачать новую версию. */
     val appPageUrl: String get() = BuildConfig.SERVER_URL.trimEnd('/') + "/app/"
+
+    /** Адрес страницы сайта, например siteUrl("#/shop/order/abc"). */
+    fun siteUrl(path: String): String = BuildConfig.SERVER_URL.trimEnd('/') + "/" + path.trimStart('/')
 
     /** Страница курса в магазине beemei на сайте (купить и продлить курс можно только на сайте). */
     fun shopProductUrl(productId: String): String =
@@ -805,6 +910,7 @@ class Repository(private val context: Context) {
 
         var known: Set<String>? = null
         var reminded: Set<String>? = null
+        var courseReminded: Set<String>? = null
         if (!me.isTeacher && !me.graduated) {
             // Новые практики и контрольные своего класса.
             // Практики класса и практики курсов ученика.
@@ -862,6 +968,24 @@ class Repository(private val context: Context) {
                 }
                 reminded = wasReminded + soon.map { it.id }
             }
+            // Купленный курс заканчивается в ближайшие сутки — напоминаем один раз за срок, с кнопкой «Продлить».
+            val endedSoon = p.getStringSet("course_reminded", emptySet()).orEmpty()
+            val ending = runCatching { enrollments() }.getOrDefault(emptyList()).filter { en ->
+                val h = en.hoursLeft
+                en.isLive && h != null && h < 30 && "${en.id}@${en.expiresAt}" !in endedSoon
+            }
+            ending.forEach { en ->
+                notices += Notice(
+                    NoticeChannel.COURSES,
+                    "course-end-${en.id}",
+                    "Курс заканчивается через ${en.leftText}",
+                    "${en.heading}. Продлите курс, чтобы задания и чат с учителем не закрылись.",
+                    "course/${en.id}",
+                    actionTitle = "Продлить",
+                    actionUrl = shopProductUrl(en.product),
+                )
+            }
+            if (ending.isNotEmpty()) courseReminded = endedSoon + ending.map { "${it.id}@${it.expiresAt}" }
         } else if (me.isTeacher) {
             // Учителю: новые работы на проверку.
             val works = fresh("works", "submissions", "created", "grade = 0", Submission.serializer(), expand = "student") { it.created }
@@ -897,10 +1021,36 @@ class Repository(private val context: Context) {
             )
         }
 
+        // Пропущенные звонки по курсу: звонили, а мы не ответили.
+        val rings = runCatching {
+            fresh("calls", "call_signals", "created", "to = \"${me.id}\" && type = \"ring\"", CallSignal.serializer()) { it.created }
+        }.getOrDefault(emptyList())
+        if (rings.isNotEmpty()) {
+            val answered = api.listAll(
+                "call_signals",
+                CallSignal.serializer(),
+                filter = "from = \"${me.id}\" && type = \"accept\" && created >= ${quote(rings.minOf { it.created })}",
+            ).map { it.call }.toSet()
+            rings.filter { it.call !in answered }.distinctBy { it.call }.take(3).forEach { r ->
+                val time = parseServerInstant(r.created)?.let {
+                    DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()).format(it)
+                }.orEmpty()
+                notices += Notice(
+                    NoticeChannel.CALLS,
+                    "call-${r.call}",
+                    "Пропущенный звонок",
+                    "${r.callerName.ifBlank { if (me.isTeacher) "Ученик курса" else "Учитель" }} звонил(а)" +
+                        (if (r.video) " по видео" else "") + (if (time.isNotEmpty()) " в $time" else "") + ". Перезвоните из курса.",
+                    (if (me.isTeacher) "admin/course/" else "course/") + r.enrollment,
+                )
+            }
+        }
+
         p.edit {
             stamps.forEach { (k, v) -> putString(k, v) }
             known?.let { putStringSet("known", it) }
             reminded?.let { putStringSet("reminded", it) }
+            courseReminded?.let { putStringSet("course_reminded", it) }
         }
         return notices
     }

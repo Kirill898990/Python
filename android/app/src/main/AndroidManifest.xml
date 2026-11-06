@@ -5,6 +5,14 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Уведомления о новых заданиях, оценках, сообщениях и сроках сдачи (Android 13+ спрашивает разрешение). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Звонки с учителем курса: голос и видео. Приложение спрашивает разрешение, только когда звонят или звонишь сам. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <!-- Камера и микрофон не обязательны: без них приложение ставится и работает, только звонить нельзя. -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.front" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
     <application
         android:name=".HimiyaApp"
@@ -25,6 +33,12 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Звонок в курсе (страница звонка с сайта). Не пересоздаётся при повороте, чтобы звонок не обрывался. -->
+        <activity
+            android:name=".call.CallActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode" />
     </application>
 
     <!-- Чтобы ссылки на теорию открывались во встроенной вкладке браузера (Custom Tabs). -->

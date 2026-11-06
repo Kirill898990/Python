@@ -1110,6 +1110,10 @@
             Api.teacherName(user.teacher).then((name) => { if (name) line.textContent = `Учитель: ${name}`; });
             return line;
           })())),
+      !user.isTeacher && h("a", { class: "card card-link", href: "#/orders" },
+        emojiBadge("🛍️", "c-primary"),
+        h("div", { class: "grow" }, h("div", { class: "card-title" }, "Мои покупки"), h("div", { class: "card-sub" }, "Заказы в магазине beemei и продление курсов")),
+        icon("chevron")),
       sectionLabel("Мои работы"),
       list,
       button("Выйти из аккаунта", logout, { kind: "outline", cls: "btn-block mt-lg" }));
