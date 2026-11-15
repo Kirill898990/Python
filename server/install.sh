@@ -14,6 +14,13 @@
 #   4. создаёт администратора (если указаны почта и пароль).
 #
 # Повторный запуск обновляет сайт и миграции. База с учениками и оценками (pb_data) не трогается.
+#
+# Домашний сервер без открытых портов (через туннель Cloudflare) — TUNNEL=1, а перенос базы из архива — RESTORE=:
+#   curl -fsSL https://raw.githubusercontent.com/Kirill898990/Python/refs/heads/main/server/install.sh \
+#     | sudo TUNNEL=1 RESTORE=/home/ИМЯ/school-backup.tar.gz bash -s -- урокискириллом.рф
+# Тогда сайт слушает только 127.0.0.1:8090, снаружи к компьютеру не подключиться (брандмауэр закрывает всё
+# входящее, SSH — только из домашней сети), а посетители попадают на сайт через туннель Cloudflare. Установка
+# спросит токен туннеля (Cloudflare → Zero Trust → Networks → Tunnels). Обновления сайт забирает с GitHub сам.
 
 set -euo pipefail
 
@@ -29,6 +36,12 @@ DIR="${DIR:-/opt/pocketbase}"
 SYSTEMD_DIR="${SYSTEMD_DIR:-/etc/systemd/system}"
 CADDY_DIR="${CADDY_DIR:-/etc/caddy}"
 TURN_CONF="${TURN_CONF:-/etc/turnserver.conf}"
+# Домашний сервер за туннелем Cloudflare (порты на роутере не нужны).
+TUNNEL="${TUNNEL:-0}"
+# Перенос базы из архива (как его сделать — в server/README.md). Поверх существующей базы — только с RESTORE_FORCE=1.
+RESTORE="${RESTORE:-}"
+# Дома свой сервер для звонков не поднять (нужны открытые порты) — звонки соединяются напрямую.
+if [ "$TUNNEL" = 1 ]; then TURN="${TURN:-0}"; fi
 
 say() { printf '\n\033[1;32m==> %s\033[0m\n' "$1"; }
 fail() { printf '\n\033[1;31mОшибка: %s\033[0m\n' "$1" >&2; exit 1; }
@@ -37,6 +50,14 @@ fail() { printf '\n\033[1;31mОшибка: %s\033[0m\n' "$1" >&2; exit 1; }
 [ "$(id -u)" -eq 0 ] || fail "запустите от имени root (или добавьте sudo перед bash)"
 if [ -n "$ADMIN_EMAIL" ] && [ "${#ADMIN_PASSWORD}" -lt 10 ]; then
   fail "пароль администратора должен быть не короче 10 символов"
+fi
+if [ -n "$RESTORE" ]; then
+  [ -f "$RESTORE" ] || fail "архив $RESTORE не найден"
+  RESTORE_LIST="$(tar -tzf "$RESTORE" 2>/dev/null || true)"
+  grep -qx 'opt/pocketbase/pb_data/data.db' <<< "$RESTORE_LIST" || fail "в архиве $RESTORE нет базы (opt/pocketbase/pb_data/data.db)"
+  if [ -d "$DIR/pb_data" ] && [ "${RESTORE_FORCE:-0}" != 1 ]; then
+    fail "на этом компьютере уже есть база ($DIR/pb_data). Заменить её архивом: добавьте RESTORE_FORCE=1 (старая база сохранится рядом)"
+  fi
 fi
 
 say "Устанавливаю нужные программы"
@@ -84,6 +105,23 @@ rm -rf "$DIR/pb_public" "$DIR/pb_hooks"
 cp -r "$SRC/pb_public" "$DIR/pb_public"
 cp -r "$SRC/pb_hooks" "$DIR/pb_hooks"   # проверка ответов на сервере
 
+# Перенос с другого сервера: база и настройки (ключи ЮKassa, почта и т. п.) — из архива.
+if [ -n "$RESTORE" ]; then
+  say "Восстанавливаю базу из архива $RESTORE"
+  mkdir -p "$TMP/restore"
+  tar -xzf "$RESTORE" -C "$TMP/restore" opt/pocketbase/pb_data
+  tar -xzf "$RESTORE" -C "$TMP/restore" opt/pocketbase/server.env 2>/dev/null || true
+  if [ -d "$DIR/pb_data" ]; then
+    OLD="$DIR/pb_data.before-restore-$(date +%Y%m%d-%H%M%S)"
+    mv "$DIR/pb_data" "$OLD"
+    echo "  Прежняя база сохранена в $OLD"
+  fi
+  mv "$TMP/restore/opt/pocketbase/pb_data" "$DIR/pb_data"
+  if [ -f "$TMP/restore/opt/pocketbase/server.env" ]; then
+    install -m 600 "$TMP/restore/opt/pocketbase/server.env" "$DIR/server.env"
+  fi
+fi
+
 # Первая установка или обновление? Базу при обновлении не трогаем.
 FRESH_INSTALL=0
 [ -d "$DIR/pb_data" ] || FRESH_INSTALL=1
@@ -100,7 +138,10 @@ fi
 # а сайт слушает только 127.0.0.1:8090 — снаружи к нему можно попасть только через Caddy.
 BEHIND_CADDY=0
 if [ -d "$CADDY_DIR/sites" ] && command -v caddy >/dev/null 2>&1; then BEHIND_CADDY=1; fi
-if [ "$BEHIND_CADDY" = 1 ]; then LISTEN="--http 127.0.0.1:8090"; else LISTEN="$DOMAIN www.$DOMAIN"; fi
+# Дома за туннелем Cloudflare — тоже только 127.0.0.1:8090: https держит Cloudflare, cloudflared приносит запросы сюда.
+BEHIND_PROXY=0
+if [ "$BEHIND_CADDY" = 1 ] || [ "$TUNNEL" = 1 ]; then BEHIND_PROXY=1; fi
+if [ "$BEHIND_PROXY" = 1 ]; then LISTEN="--http 127.0.0.1:8090"; else LISTEN="$DOMAIN www.$DOMAIN"; fi
 
 say "Настраиваю автозапуск"
 cat > "$SYSTEMD_DIR/pocketbase.service" <<EOF
@@ -133,7 +174,15 @@ set_env() {
   chmod 600 "$ENV_FILE"
 }
 set_env SITE_URL "https://$DOMAIN"
-set_env BEHIND_PROXY "$BEHIND_CADDY"
+set_env BEHIND_PROXY "$BEHIND_PROXY"
+# Настоящий адрес посетителя: у Cloudflare — заголовок CF-Connecting-IP, у Caddy — X-Forwarded-For.
+if [ "$TUNNEL" = 1 ]; then set_env PROXY_IP_HEADER "CF-Connecting-IP"; else set_env PROXY_IP_HEADER "X-Forwarded-For"; fi
+if [ "$TUNNEL" = 1 ] && [ "${TURN:-0}" = 0 ]; then
+  # Сервер звонков старого хостинга дома недоступен — звонки соединяются напрямую (STUN).
+  { grep -v -e '^TURN_HOST=' -e '^TURN_SECRET=' "$ENV_FILE" || true; } > "$ENV_FILE.tmp"
+  mv "$ENV_FILE.tmp" "$ENV_FILE"
+  chmod 600 "$ENV_FILE"
+fi
 
 UFW_ON=0
 if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then UFW_ON=1; fi
@@ -207,14 +256,79 @@ if command -v fail2ban-client >/dev/null 2>&1; then
   systemctl restart fail2ban >/dev/null 2>&1 || true
 fi
 
-# Открываем порты 80 и 443, если на сервере включён брандмауэр.
-if [ "$UFW_ON" = 1 ]; then
+# Открываем порты 80 и 443, если на сервере включён брандмауэр (дома за туннелем они не нужны).
+if [ "$UFW_ON" = 1 ] && [ "$TUNNEL" != 1 ]; then
   ufw allow 80/tcp >/dev/null
   ufw allow 443/tcp >/dev/null
 fi
 
+if [ "$TUNNEL" = 1 ]; then
+  say "Защищаю домашний сервер"
+  # Брандмауэр: всё входящее закрыто, SSH — только из домашней сети. Посетители приходят через туннель (исходящее соединение).
+  apt-get install -y -qq ufw >/dev/null
+  ufw default deny incoming >/dev/null
+  ufw default allow outgoing >/dev/null
+  for NET in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16; do ufw allow from "$NET" to any port 22 proto tcp >/dev/null; done
+  ufw --force enable >/dev/null
+  # Обновления безопасности ставятся сами.
+  apt-get install -y -qq unattended-upgrades >/dev/null
+  printf 'APT::Periodic::Update-Package-Lists "1";\nAPT::Periodic::Unattended-Upgrade "1";\n' > /etc/apt/apt.conf.d/20auto-upgrades
+  # Компьютер не засыпает (иначе сайт пропадёт, пока никто не трогает мышь).
+  systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target >/dev/null 2>&1 || true
+
+  say "Подключаю туннель Cloudflare"
+  if ! command -v cloudflared >/dev/null 2>&1; then
+    mkdir -p --mode=0755 /usr/share/keyrings
+    curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg -o /usr/share/keyrings/cloudflare-main.gpg
+    echo "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main" > /etc/apt/sources.list.d/cloudflared.list
+    apt-get update -qq
+    apt-get install -y -qq cloudflared >/dev/null || fail "не получилось установить cloudflared"
+  fi
+  if systemctl is-enabled --quiet cloudflared 2>/dev/null; then
+    echo "  Туннель уже подключён."
+  else
+    CF_TOKEN="${CF_TOKEN:-}"
+    if [ -z "$CF_TOKEN" ] && [ -r /dev/tty ]; then
+      printf '  Вставьте токен туннеля Cloudflare (на экране его не видно) и нажмите Enter:\n  ' > /dev/tty
+      read -rs CF_TOKEN < /dev/tty || true
+      echo > /dev/tty
+    fi
+    # Вставили всю команду «cloudflared service install …» — берём из неё только токен (последнее слово).
+    CF_TOKEN="$(printf '%s' "$CF_TOKEN" | tr -s ' \t\r\n' ' ' | awk '{print $NF}')"
+    if [ -n "$CF_TOKEN" ]; then
+      cloudflared service install "$CF_TOKEN" >/dev/null 2>&1 || fail "туннель не подключился — проверьте токен (Cloudflare → Zero Trust → Networks → Tunnels)"
+      echo "  Туннель подключён."
+    else
+      echo "  Токен не введён — туннель не подключён. Запустите установку ещё раз, когда будет токен."
+    fi
+  fi
+
+  # Автообновление: сервер сам раз в 15 минут смотрит на GitHub и ставит новое (входящие соединения не нужны).
+  {
+    echo '#!/usr/bin/env bash'
+    echo '# Автообновление «Простой химии» с GitHub (создано server/install.sh).'
+    echo 'set -euo pipefail'
+    echo "SHA=\"\$(curl -fsSL -H 'Accept: application/vnd.github.sha' https://api.github.com/repos/$REPO/commits/$BRANCH)\""
+    echo '[[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || exit 0'
+    echo "[ \"\$(cat $DIR/.ref 2>/dev/null || true)\" = \"\$SHA\" ] && exit 0"
+    echo "curl -fsSL \"https://raw.githubusercontent.com/$REPO/\$SHA/server/install.sh\" | REF=\"\$SHA\" TUNNEL=1 bash -s -- $DOMAIN"
+  } > /usr/local/sbin/school-autoupdate
+  chmod 755 /usr/local/sbin/school-autoupdate
+  printf '%s\n' '[Unit]' 'Description=Автообновление «Простой химии» с GitHub' 'After=network-online.target' 'Wants=network-online.target' '' \
+    '[Service]' 'Type=oneshot' 'ExecStart=/usr/local/sbin/school-autoupdate' > "$SYSTEMD_DIR/school-autoupdate.service"
+  printf '%s\n' '[Unit]' 'Description=Раз в 15 минут — проверить обновления «Простой химии»' '' \
+    '[Timer]' 'OnBootSec=5min' 'OnUnitActiveSec=15min' '' '[Install]' 'WantedBy=timers.target' > "$SYSTEMD_DIR/school-autoupdate.timer"
+fi
+# Какая версия стоит (по ней автообновление понимает, есть ли новое). Ручной запуск дома — запоминаем текущую на GitHub.
+if [ -z "$REF" ] && [ "$TUNNEL" = 1 ]; then
+  REF="$(curl -fsSL -H 'Accept: application/vnd.github.sha' "https://api.github.com/repos/$REPO/commits/$BRANCH" 2>/dev/null || true)"
+  [[ "$REF" =~ ^[0-9a-f]{40}$ ]] || REF=""
+fi
+if [ -n "$REF" ]; then echo "$REF" > "$DIR/.ref"; fi
+
 systemctl daemon-reload
 systemctl enable pocketbase >/dev/null 2>&1
+if [ "$TUNNEL" = 1 ]; then systemctl enable --now school-autoupdate.timer >/dev/null 2>&1 || true; fi
 systemctl restart pocketbase
 sleep 3
 systemctl is-active --quiet pocketbase || fail "сервер не запустился. Подробности: journalctl -u pocketbase -n 50"
@@ -238,6 +352,14 @@ fi
 SERVER_IP="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i < NF; i++) if ($i == "src") print $(i + 1)}' || true)"
 DOMAIN_IP="$(getent ahostsv4 "$DOMAIN" 2>/dev/null | awk 'NR == 1 {print $1}' || true)"
 
+if [ "$TUNNEL" = 1 ]; then
+  say "Готово! Сайт работает на этом компьютере и будет запускаться сам."
+  if curl -fsS -o /dev/null http://127.0.0.1:8090/api/health; then echo "  Проверка: сайт отвечает (http://127.0.0.1:8090)."; else echo "  Сайт пока не отвечает: journalctl -u pocketbase -n 50"; fi
+  echo "  Чтобы сайт открывался по адресу https://$DOMAIN_INPUT/ — в Cloudflare: Zero Trust → Networks → Tunnels →"
+  echo "  ваш туннель → Public Hostname → добавить $DOMAIN_INPUT и www.$DOMAIN_INPUT → Service: HTTP, localhost:8090."
+  echo "  Журнал сервера: journalctl -u pocketbase -f   ·   туннель: systemctl status cloudflared"
+  exit 0
+fi
 say "Готово! Сервер работает и будет запускаться сам."
 echo "  Сайт:                  https://$DOMAIN_INPUT/"
 echo "  Панель администратора: https://$DOMAIN_INPUT/_/"
